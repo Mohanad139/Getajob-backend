@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Job Listings</title>
+    <title>Job Tracker</title>
     <style>
         * {
             margin: 0;
@@ -24,45 +24,84 @@
             padding: 20px;
         }
 
-        header {
+        /* Navigation */
+        nav {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        nav h1 {
             color: white;
-            padding: 40px 20px;
-            text-align: center;
+            font-size: 1.5rem;
+        }
+
+        nav .nav-links {
+            display: flex;
+            gap: 10px;
+        }
+
+        nav button {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background 0.2s;
+        }
+
+        nav button:hover, nav button.active {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Dashboard Stats */
+        .dashboard-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
             margin-bottom: 30px;
         }
 
-        header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-        }
-
-        header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-
-        .stats {
-            display: flex;
-            justify-content: center;
-            gap: 40px;
-            margin-top: 20px;
-        }
-
-        .stat-item {
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             text-align: center;
         }
 
-        .stat-number {
-            font-size: 2rem;
+        .stat-card .number {
+            font-size: 2.5rem;
             font-weight: bold;
+            color: #667eea;
         }
 
-        .stat-label {
-            font-size: 0.9rem;
-            opacity: 0.8;
+        .stat-card .label {
+            color: #666;
+            margin-top: 5px;
         }
 
+        .stat-card.warning .number {
+            color: #f57c00;
+        }
+
+        .stat-card.success .number {
+            color: #388e3c;
+        }
+
+        /* Filters */
         .filters {
             background: white;
             padding: 20px;
@@ -75,16 +114,16 @@
             align-items: center;
         }
 
-        .filters input {
+        .filters input, .filters select {
             padding: 12px 16px;
             border: 1px solid #ddd;
             border-radius: 8px;
             font-size: 1rem;
             flex: 1;
-            min-width: 200px;
+            min-width: 150px;
         }
 
-        .filters input:focus {
+        .filters input:focus, .filters select:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -105,6 +144,7 @@
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
+        /* Jobs Grid */
         .jobs-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -117,11 +157,16 @@
             padding: 24px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
         }
 
         .job-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .job-card.applied {
+            border-left: 4px solid #388e3c;
         }
 
         .job-card h3 {
@@ -167,6 +212,26 @@
             color: #f57c00;
         }
 
+        .job-card .tag.status {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .job-card .tag.status.interviewed {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+
+        .job-card .tag.status.offered {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+
+        .job-card .tag.status.rejected {
+            background: #ffebee;
+            color: #c62828;
+        }
+
         .job-card .description {
             color: #666;
             font-size: 0.9rem;
@@ -183,6 +248,7 @@
             align-items: center;
             padding-top: 15px;
             border-top: 1px solid #eee;
+            gap: 10px;
         }
 
         .job-card .date {
@@ -190,20 +256,178 @@
             color: #999;
         }
 
-        .job-card .apply-btn {
-            padding: 8px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            text-decoration: none;
+        .job-card .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .job-card .btn {
+            padding: 8px 16px;
             border-radius: 6px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: none;
             transition: transform 0.2s;
         }
 
-        .job-card .apply-btn:hover {
+        .job-card .btn:hover {
             transform: scale(1.05);
         }
 
+        .job-card .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .job-card .btn-success {
+            background: #388e3c;
+            color: white;
+        }
+
+        .job-card .btn-outline {
+            background: white;
+            border: 1px solid #ddd;
+            color: #666;
+        }
+
+        .job-card .btn-danger {
+            background: #c62828;
+            color: white;
+        }
+
+        /* Applications List */
+        .applications-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .application-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .application-card .info h3 {
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+
+        .application-card .info .company {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .application-card .info .meta {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .application-card .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .application-card select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            display: none;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal .form-group {
+            margin-bottom: 15px;
+        }
+
+        .modal label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .modal input, .modal select, .modal textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        .modal textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .modal .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal .btn-group button {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            border: none;
+        }
+
+        .modal .btn-cancel {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .modal .btn-submit {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        /* Loading & Error States */
         .loading {
             text-align: center;
             padding: 60px;
@@ -235,12 +459,13 @@
             text-align: center;
         }
 
-        .no-jobs {
+        .no-data {
             text-align: center;
             padding: 60px;
             color: #666;
         }
 
+        /* Pagination */
         .pagination {
             display: flex;
             justify-content: center;
@@ -266,61 +491,218 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* Toast Notifications */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success {
+            background: #388e3c;
+        }
+
+        .toast.error {
+            background: #c62828;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Section visibility */
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
-    <header>
-        <h1>Job Listings</h1>
-        <p>Find your next opportunity</p>
-        <div class="stats" id="stats">
-            <div class="stat-item">
-                <div class="stat-number" id="total-jobs">-</div>
-                <div class="stat-label">Total Jobs</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-number" id="total-companies">-</div>
-                <div class="stat-label">Companies</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-number" id="total-locations">-</div>
-                <div class="stat-label">Locations</div>
+    <nav>
+        <div class="nav-content">
+            <h1>Job Tracker</h1>
+            <div class="nav-links">
+                <button class="active" onclick="showSection('jobs')">Jobs</button>
+                <button onclick="showSection('applications')">My Applications</button>
+                <button onclick="showSection('dashboard')">Dashboard</button>
             </div>
         </div>
-    </header>
+    </nav>
 
     <div class="container">
-        <div class="filters">
-            <input type="text" id="company-filter" placeholder="Filter by company...">
-            <input type="text" id="location-filter" placeholder="Filter by location...">
-            <button onclick="loadJobs()">Search</button>
+        <!-- Jobs Section -->
+        <div id="jobs-section" class="section active">
+            <div class="filters">
+                <input type="text" id="company-filter" placeholder="Filter by company...">
+                <input type="text" id="location-filter" placeholder="Filter by location...">
+                <button onclick="loadJobs()">Search</button>
+            </div>
+            <div id="jobs-container" class="jobs-grid"></div>
+            <div class="pagination" id="jobs-pagination"></div>
         </div>
 
-        <div id="jobs-container" class="jobs-grid"></div>
+        <!-- Applications Section -->
+        <div id="applications-section" class="section">
+            <div class="filters">
+                <select id="status-filter" onchange="loadApplications()">
+                    <option value="">All Statuses</option>
+                    <option value="applied">Applied</option>
+                    <option value="interviewed">Interviewed</option>
+                    <option value="offered">Offered</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+                <label style="display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="upcoming-filter" onchange="loadApplications()">
+                    Upcoming Deadlines Only
+                </label>
+            </div>
+            <div id="applications-container" class="applications-list"></div>
+        </div>
 
-        <div class="pagination" id="pagination"></div>
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="section">
+            <div class="dashboard-stats" id="dashboard-stats"></div>
+        </div>
+    </div>
+
+    <!-- Apply Modal -->
+    <div class="modal-overlay" id="apply-modal">
+        <div class="modal">
+            <h2>Mark as Applied</h2>
+            <input type="hidden" id="apply-job-id">
+            <div class="form-group">
+                <label>Status</label>
+                <select id="apply-status">
+                    <option value="applied">Applied</option>
+                    <option value="interviewed">Interviewed</option>
+                    <option value="offered">Offered</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Deadline (optional)</label>
+                <input type="datetime-local" id="apply-deadline">
+            </div>
+            <div class="form-group">
+                <label>Follow-up Date (optional)</label>
+                <input type="datetime-local" id="apply-followup">
+            </div>
+            <div class="form-group">
+                <label>Notes (optional)</label>
+                <textarea id="apply-notes" placeholder="Add any notes about this application..."></textarea>
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('apply-modal')">Cancel</button>
+                <button class="btn-submit" onclick="submitApplication()">Save Application</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Application Modal -->
+    <div class="modal-overlay" id="edit-modal">
+        <div class="modal">
+            <h2>Edit Application</h2>
+            <input type="hidden" id="edit-app-id">
+            <div class="form-group">
+                <label>Status</label>
+                <select id="edit-status">
+                    <option value="applied">Applied</option>
+                    <option value="interviewed">Interviewed</option>
+                    <option value="offered">Offered</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Deadline</label>
+                <input type="datetime-local" id="edit-deadline">
+            </div>
+            <div class="form-group">
+                <label>Follow-up Date</label>
+                <input type="datetime-local" id="edit-followup">
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea id="edit-notes"></textarea>
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('edit-modal')">Cancel</button>
+                <button class="btn-submit" onclick="updateApplication()">Update</button>
+            </div>
+        </div>
     </div>
 
     <script>
         const API_URL = 'http://localhost:8000';
         let currentPage = 0;
         const limit = 12;
+        let appliedJobIds = new Set();
 
-        async function loadStats() {
+        // Navigation
+        function showSection(section) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+
+            document.getElementById(`${section}-section`).classList.add('active');
+            event.target.classList.add('active');
+
+            if (section === 'jobs') loadJobs();
+            else if (section === 'applications') loadApplications();
+            else if (section === 'dashboard') loadDashboard();
+        }
+
+        // Toast notifications
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Modal functions
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        // Load applied job IDs
+        async function loadAppliedJobIds() {
             try {
-                const response = await fetch(`${API_URL}/api/stats`);
-                const stats = await response.json();
-                document.getElementById('total-jobs').textContent = stats.total_jobs || 0;
-                document.getElementById('total-companies').textContent = stats.total_companies || 0;
-                document.getElementById('total-locations').textContent = stats.total_locations || 0;
+                const response = await fetch(`${API_URL}/api/applications`);
+                const applications = await response.json();
+                appliedJobIds = new Set(applications.map(a => a.job_id));
             } catch (error) {
-                console.error('Failed to load stats:', error);
+                console.error('Failed to load applications:', error);
             }
         }
 
+        // Jobs functions
         async function loadJobs(page = 0) {
             currentPage = page;
             const container = document.getElementById('jobs-container');
             container.innerHTML = '<div class="loading">Loading jobs</div>';
+
+            await loadAppliedJobIds();
 
             const company = document.getElementById('company-filter').value;
             const location = document.getElementById('location-filter').value;
@@ -335,13 +717,13 @@
                 const jobs = await response.json();
 
                 if (jobs.length === 0) {
-                    container.innerHTML = '<div class="no-jobs">No jobs found. Try adjusting your filters.</div>';
-                    document.getElementById('pagination').innerHTML = '';
+                    container.innerHTML = '<div class="no-data">No jobs found. Try adjusting your filters.</div>';
+                    document.getElementById('jobs-pagination').innerHTML = '';
                     return;
                 }
 
                 container.innerHTML = jobs.map(job => createJobCard(job)).join('');
-                updatePagination(jobs.length);
+                updateJobsPagination(jobs.length);
             } catch (error) {
                 container.innerHTML = `<div class="error">Error loading jobs: ${error.message}</div>`;
             }
@@ -356,26 +738,35 @@
                 ? job.description.substring(0, 200) + (job.description.length > 200 ? '...' : '')
                 : 'No description available';
 
+            const isApplied = appliedJobIds.has(job.job_id);
+
             return `
-                <div class="job-card">
+                <div class="job-card ${isApplied ? 'applied' : ''}">
                     <h3>${escapeHtml(job.title)}</h3>
                     <div class="company">${escapeHtml(job.company)}</div>
                     <div class="meta">
                         ${job.location ? `<span class="tag location">${escapeHtml(job.location)}</span>` : ''}
                         ${job.salary ? `<span class="tag salary">${escapeHtml(job.salary)}</span>` : ''}
                         ${job.job_type ? `<span class="tag type">${escapeHtml(job.job_type)}</span>` : ''}
+                        ${isApplied ? '<span class="tag status">Applied</span>' : ''}
                     </div>
                     <div class="description">${escapeHtml(description)}</div>
                     <div class="footer">
                         <span class="date">Posted: ${postedDate}</span>
-                        <a href="${escapeHtml(job.url)}" target="_blank" class="apply-btn">View Job</a>
+                        <div class="actions">
+                            <a href="${escapeHtml(job.url)}" target="_blank" class="btn btn-outline">View</a>
+                            ${isApplied
+                                ? '<button class="btn btn-success" disabled>Applied</button>'
+                                : `<button class="btn btn-primary" onclick="openApplyModal('${escapeHtml(job.job_id)}')">Mark Applied</button>`
+                            }
+                        </div>
                     </div>
                 </div>
             `;
         }
 
-        function updatePagination(jobsCount) {
-            const pagination = document.getElementById('pagination');
+        function updateJobsPagination(jobsCount) {
+            const pagination = document.getElementById('jobs-pagination');
             pagination.innerHTML = `
                 <button onclick="loadJobs(${currentPage - 1})" ${currentPage === 0 ? 'disabled' : ''}>Previous</button>
                 <button disabled>Page ${currentPage + 1}</button>
@@ -383,6 +774,207 @@
             `;
         }
 
+        // Apply modal
+        function openApplyModal(jobId) {
+            document.getElementById('apply-job-id').value = jobId;
+            document.getElementById('apply-status').value = 'applied';
+            document.getElementById('apply-deadline').value = '';
+            document.getElementById('apply-followup').value = '';
+            document.getElementById('apply-notes').value = '';
+            openModal('apply-modal');
+        }
+
+        async function submitApplication() {
+            const jobId = document.getElementById('apply-job-id').value;
+            const status = document.getElementById('apply-status').value;
+            const deadline = document.getElementById('apply-deadline').value;
+            const followUp = document.getElementById('apply-followup').value;
+            const notes = document.getElementById('apply-notes').value;
+
+            try {
+                const response = await fetch(`${API_URL}/api/applications`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_id: jobId,
+                        status: status,
+                        deadline: deadline || null,
+                        follow_up_date: followUp || null,
+                        notes: notes || null
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create application');
+                }
+
+                closeModal('apply-modal');
+                showToast('Application saved successfully!');
+                loadJobs(currentPage);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Applications functions
+        async function loadApplications() {
+            const container = document.getElementById('applications-container');
+            container.innerHTML = '<div class="loading">Loading applications</div>';
+
+            const status = document.getElementById('status-filter').value;
+            const upcomingOnly = document.getElementById('upcoming-filter').checked;
+
+            let url = `${API_URL}/api/applications?`;
+            if (status) url += `status=${status}&`;
+            if (upcomingOnly) url += `upcoming_deadlines=true`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to fetch applications');
+                const applications = await response.json();
+
+                if (applications.length === 0) {
+                    container.innerHTML = '<div class="no-data">No applications found.</div>';
+                    return;
+                }
+
+                container.innerHTML = applications.map(app => createApplicationCard(app)).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error loading applications: ${error.message}</div>`;
+            }
+        }
+
+        function createApplicationCard(app) {
+            const appliedDate = new Date(app.applied_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const deadline = app.deadline ? new Date(app.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No deadline';
+
+            return `
+                <div class="application-card">
+                    <div class="info">
+                        <h3>${escapeHtml(app.title)}</h3>
+                        <div class="company">${escapeHtml(app.company)}</div>
+                        <div class="meta">
+                            <span class="tag status ${app.status}">${escapeHtml(app.status)}</span>
+                            <span>Applied: ${appliedDate}</span>
+                            <span>Deadline: ${deadline}</span>
+                            ${app.location ? `<span>${escapeHtml(app.location)}</span>` : ''}
+                        </div>
+                        ${app.notes ? `<p style="margin-top: 10px; color: #666; font-size: 0.9rem;">${escapeHtml(app.notes)}</p>` : ''}
+                    </div>
+                    <div class="actions">
+                        <a href="${escapeHtml(app.url)}" target="_blank" class="btn btn-outline">View Job</a>
+                        <button class="btn btn-primary" onclick="openEditModal(${app.id}, '${app.status}', '${app.deadline || ''}', '${app.follow_up_date || ''}', '${escapeHtml(app.notes || '')}')">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteApplication(${app.id})">Delete</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function openEditModal(id, status, deadline, followUp, notes) {
+            document.getElementById('edit-app-id').value = id;
+            document.getElementById('edit-status').value = status;
+            document.getElementById('edit-deadline').value = deadline ? deadline.slice(0, 16) : '';
+            document.getElementById('edit-followup').value = followUp ? followUp.slice(0, 16) : '';
+            document.getElementById('edit-notes').value = notes;
+            openModal('edit-modal');
+        }
+
+        async function updateApplication() {
+            const id = document.getElementById('edit-app-id').value;
+            const status = document.getElementById('edit-status').value;
+            const deadline = document.getElementById('edit-deadline').value;
+            const followUp = document.getElementById('edit-followup').value;
+            const notes = document.getElementById('edit-notes').value;
+
+            try {
+                const response = await fetch(`${API_URL}/api/applications/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        status: status,
+                        deadline: deadline || null,
+                        follow_up_date: followUp || null,
+                        notes: notes || null
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to update application');
+
+                closeModal('edit-modal');
+                showToast('Application updated!');
+                loadApplications();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteApplication(id) {
+            if (!confirm('Are you sure you want to delete this application?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/applications/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) throw new Error('Failed to delete application');
+
+                showToast('Application deleted');
+                loadApplications();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Dashboard functions
+        async function loadDashboard() {
+            const container = document.getElementById('dashboard-stats');
+            container.innerHTML = '<div class="loading">Loading dashboard</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/dashboard/stats`);
+                if (!response.ok) throw new Error('Failed to fetch stats');
+                const stats = await response.json();
+
+                const statusMap = {};
+                stats.status_breakdown.forEach(s => {
+                    statusMap[s.status] = s.count;
+                });
+
+                const totalApps = Object.values(statusMap).reduce((a, b) => a + b, 0);
+
+                container.innerHTML = `
+                    <div class="stat-card">
+                        <div class="number">${totalApps}</div>
+                        <div class="label">Total Applications</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="number">${statusMap['applied'] || 0}</div>
+                        <div class="label">Applied</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="number">${statusMap['interviewed'] || 0}</div>
+                        <div class="label">Interviewed</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="number">${statusMap['offered'] || 0}</div>
+                        <div class="label">Offers</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="number">${stats.upcoming_deadlines}</div>
+                        <div class="label">Upcoming Deadlines</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="number">${stats.applications_this_week}</div>
+                        <div class="label">Applied This Week</div>
+                    </div>
+                `;
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error loading dashboard: ${error.message}</div>`;
+            }
+        }
+
+        // Utility functions
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
@@ -390,7 +982,7 @@
             return div.innerHTML;
         }
 
-        // Allow Enter key to search
+        // Event listeners
         document.getElementById('company-filter').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') loadJobs();
         });
@@ -398,8 +990,14 @@
             if (e.key === 'Enter') loadJobs();
         });
 
+        // Close modals on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) overlay.classList.remove('active');
+            });
+        });
+
         // Initial load
-        loadStats();
         loadJobs();
     </script>
 </body>

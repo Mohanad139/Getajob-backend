@@ -8,6 +8,8 @@ from psycopg2.extras import RealDictCursor
 from database import get_connection
 from scraper import fetch_jobs, save_jobs_to_db
 import os
+from datetime import datetime, timedelta
+
 
 app = FastAPI(title="Interview AI API")
 
@@ -45,6 +47,32 @@ class Job(BaseModel):
     source: str
     posted_date: Optional[datetime]
     scraped_at: datetime
+
+class ApplicationCreate(BaseModel):
+    job_id: str
+    status: Optional[str] = "applied"
+    deadline: Optional[str] = None  # ISO format: "2026-01-25T10:00:00"
+    follow_up_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class ApplicationUpdate(BaseModel):
+    status: Optional[str] = None
+    deadline: Optional[str] = None
+    follow_up_date: Optional[str] = None
+    notes: Optional[str] = None
+
+class Application(BaseModel):
+    id: int
+    job_id: str
+    status: str
+    applied_date: str
+    deadline: Optional[str]
+    follow_up_date: Optional[str]
+    notes: Optional[str]
+    created_at: str
+    updated_at: str
+
+
 
 @app.get("/")
 def read_root():
@@ -186,6 +214,264 @@ async def get_stats():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/api/applications", response_model=dict)
+async def create_application(application: ApplicationCreate):
+    """
+    Mark a job as applied with optional deadline
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if job exists
+        cursor.execute("SELECT job_id FROM jobs WHERE job_id = %s", (application.job_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Check if already applied
+        cursor.execute("SELECT id FROM applications WHERE job_id = %s", (application.job_id,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Already applied to this job")
+        
+        # Insert application
+        cursor.execute("""
+            INSERT INTO applications (job_id, status, deadline, follow_up_date, notes)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            application.job_id,
+            application.status,
+            application.deadline,
+            application.follow_up_date,
+            application.notes
+        ))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"message": "Application created successfully", "id": result['id']}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/applications", response_model=List[dict])
+async def get_applications(
+    status: Optional[str] = None,
+    upcoming_deadlines: Optional[bool] = False
+):
+    """
+    Get all applications with optional filters
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        query = """
+            SELECT 
+                a.*,
+                j.title,
+                j.company,
+                j.location,
+                j.url
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.job_id
+            WHERE 1=1
+        """
+        params = []
+        
+        if status:
+            query += " AND a.status = %s"
+            params.append(status)
+        
+        if upcoming_deadlines:
+            query += " AND a.deadline IS NOT NULL AND a.deadline > NOW()"
+            query += " ORDER BY a.deadline ASC"
+        else:
+            query += " ORDER BY a.applied_date DESC"
+        
+        cursor.execute(query, params)
+        applications = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return applications
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/applications/{application_id}")
+async def get_application(application_id: int):
+    """
+    Get a specific application
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute("""
+            SELECT 
+                a.*,
+                j.title,
+                j.company,
+                j.location,
+                j.url,
+                j.description
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.job_id
+            WHERE a.id = %s
+        """, (application_id,))
+        
+        application = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
+        
+        return application
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/applications/{application_id}")
+async def update_application(application_id: int, update: ApplicationUpdate):
+    """
+    Update an application (status, deadline, notes)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Build dynamic update query
+        updates = []
+        params = []
+        
+        if update.status is not None:
+            updates.append("status = %s")
+            params.append(update.status)
+        
+        if update.deadline is not None:
+            updates.append("deadline = %s")
+            params.append(update.deadline)
+        
+        if update.follow_up_date is not None:
+            updates.append("follow_up_date = %s")
+            params.append(update.follow_up_date)
+        
+        if update.notes is not None:
+            updates.append("notes = %s")
+            params.append(update.notes)
+        
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(application_id)
+        
+        query = f"UPDATE applications SET {', '.join(updates)} WHERE id = %s RETURNING id"
+        
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Application not found")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"message": "Application updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/applications/{application_id}")
+async def delete_application(application_id: int):
+    """
+    Delete an application
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM applications WHERE id = %s RETURNING id", (application_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Application not found")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"message": "Application deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats():
+    """
+    Get dashboard statistics
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Total applications by status
+        cursor.execute("""
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM applications
+            GROUP BY status
+        """)
+        status_counts = cursor.fetchall()
+        
+        # Upcoming deadlines (next 7 days)
+        cursor.execute("""
+            SELECT COUNT(*) as count
+            FROM applications
+            WHERE deadline IS NOT NULL 
+            AND deadline BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+        """)
+        upcoming_deadlines = cursor.fetchone()
+        
+        # Applications this week
+        cursor.execute("""
+            SELECT COUNT(*) as count
+            FROM applications
+            WHERE applied_date >= NOW() - INTERVAL '7 days'
+        """)
+        this_week = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status_breakdown": status_counts,
+            "upcoming_deadlines": upcoming_deadlines['count'],
+            "applications_this_week": this_week['count']
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
