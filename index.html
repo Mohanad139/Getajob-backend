@@ -66,6 +66,99 @@
             background: rgba(255,255,255,0.3);
         }
 
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            color: white;
+        }
+
+        .user-info span {
+            font-size: 0.9rem;
+        }
+
+        .user-info button {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+        }
+
+        /* Auth Forms */
+        .auth-container {
+            max-width: 400px;
+            margin: 80px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .auth-container h2 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+
+        .auth-container .form-group {
+            margin-bottom: 20px;
+        }
+
+        .auth-container label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .auth-container input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        .auth-container input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .auth-container .btn-primary {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .auth-container .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        .auth-container .switch-auth {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+
+        .auth-container .switch-auth a {
+            color: #667eea;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .auth-error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
         /* Dashboard Stats */
         .dashboard-stats {
             display: grid;
@@ -268,6 +361,7 @@
             cursor: pointer;
             border: none;
             transition: transform 0.2s;
+            text-decoration: none;
         }
 
         .job-card .btn:hover {
@@ -329,6 +423,7 @@
             margin-top: 10px;
             font-size: 0.9rem;
             color: #666;
+            flex-wrap: wrap;
         }
 
         .application-card .actions {
@@ -532,53 +627,109 @@
         .section.active {
             display: block;
         }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
-    <nav>
-        <div class="nav-content">
-            <h1>Job Tracker</h1>
-            <div class="nav-links">
-                <button class="active" onclick="showSection('jobs')">Jobs</button>
-                <button onclick="showSection('applications')">My Applications</button>
-                <button onclick="showSection('dashboard')">Dashboard</button>
+    <!-- Auth Section -->
+    <div id="auth-section">
+        <nav>
+            <div class="nav-content">
+                <h1>Job Tracker</h1>
             </div>
-        </div>
-    </nav>
+        </nav>
 
-    <div class="container">
-        <!-- Jobs Section -->
-        <div id="jobs-section" class="section active">
-            <div class="filters">
-                <input type="text" id="company-filter" placeholder="Filter by company...">
-                <input type="text" id="location-filter" placeholder="Filter by location...">
-                <button onclick="loadJobs()">Search</button>
+        <!-- Login Form -->
+        <div class="auth-container" id="login-form">
+            <h2>Login</h2>
+            <div class="auth-error hidden" id="login-error"></div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="login-email" placeholder="Enter your email">
             </div>
-            <div id="jobs-container" class="jobs-grid"></div>
-            <div class="pagination" id="jobs-pagination"></div>
-        </div>
-
-        <!-- Applications Section -->
-        <div id="applications-section" class="section">
-            <div class="filters">
-                <select id="status-filter" onchange="loadApplications()">
-                    <option value="">All Statuses</option>
-                    <option value="applied">Applied</option>
-                    <option value="interviewed">Interviewed</option>
-                    <option value="offered">Offered</option>
-                    <option value="rejected">Rejected</option>
-                </select>
-                <label style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="upcoming-filter" onchange="loadApplications()">
-                    Upcoming Deadlines Only
-                </label>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="login-password" placeholder="Enter your password">
             </div>
-            <div id="applications-container" class="applications-list"></div>
+            <button class="btn-primary" onclick="login()">Login</button>
+            <p class="switch-auth">Don't have an account? <a onclick="showRegister()">Register</a></p>
         </div>
 
-        <!-- Dashboard Section -->
-        <div id="dashboard-section" class="section">
-            <div class="dashboard-stats" id="dashboard-stats"></div>
+        <!-- Register Form -->
+        <div class="auth-container hidden" id="register-form">
+            <h2>Register</h2>
+            <div class="auth-error hidden" id="register-error"></div>
+            <div class="form-group">
+                <label>Full Name</label>
+                <input type="text" id="register-name" placeholder="Enter your full name">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="register-email" placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="register-password" placeholder="Create a password">
+            </div>
+            <button class="btn-primary" onclick="register()">Register</button>
+            <p class="switch-auth">Already have an account? <a onclick="showLogin()">Login</a></p>
+        </div>
+    </div>
+
+    <!-- Main App Section -->
+    <div id="app-section" class="hidden">
+        <nav>
+            <div class="nav-content">
+                <h1>Job Tracker</h1>
+                <div class="nav-links">
+                    <button class="active" onclick="showSection('jobs')">Jobs</button>
+                    <button onclick="showSection('applications')">My Applications</button>
+                    <button onclick="showSection('dashboard')">Dashboard</button>
+                </div>
+                <div class="user-info">
+                    <span id="user-name"></span>
+                    <button onclick="logout()">Logout</button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- Jobs Section -->
+            <div id="jobs-section" class="section active">
+                <div class="filters">
+                    <input type="text" id="company-filter" placeholder="Filter by company...">
+                    <input type="text" id="location-filter" placeholder="Filter by location...">
+                    <button onclick="loadJobs()">Search</button>
+                </div>
+                <div id="jobs-container" class="jobs-grid"></div>
+                <div class="pagination" id="jobs-pagination"></div>
+            </div>
+
+            <!-- Applications Section -->
+            <div id="applications-section" class="section">
+                <div class="filters">
+                    <select id="status-filter" onchange="loadApplications()">
+                        <option value="">All Statuses</option>
+                        <option value="applied">Applied</option>
+                        <option value="interviewed">Interviewed</option>
+                        <option value="offered">Offered</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="upcoming-filter" onchange="loadApplications()">
+                        Upcoming Deadlines Only
+                    </label>
+                </div>
+                <div id="applications-container" class="applications-list"></div>
+            </div>
+
+            <!-- Dashboard Section -->
+            <div id="dashboard-section" class="section">
+                <div class="dashboard-stats" id="dashboard-stats"></div>
+            </div>
         </div>
     </div>
 
@@ -653,11 +804,142 @@
         let currentPage = 0;
         const limit = 12;
         let appliedJobIds = new Set();
+        let authToken = localStorage.getItem('authToken');
+        let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+
+        // Check auth on load
+        document.addEventListener('DOMContentLoaded', () => {
+            if (authToken && currentUser) {
+                showApp();
+            }
+        });
+
+        // Auth functions
+        function showLogin() {
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('register-form').classList.add('hidden');
+        }
+
+        function showRegister() {
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('register-form').classList.remove('hidden');
+        }
+
+        async function login() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            if (!email || !password) {
+                errorDiv.textContent = 'Please fill in all fields';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('username', email);
+                formData.append('password', password);
+
+                const response = await fetch(`${API_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Login failed');
+                }
+
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+                errorDiv.classList.add('hidden');
+                showApp();
+
+            } catch (error) {
+                errorDiv.textContent = error.message;
+                errorDiv.classList.remove('hidden');
+            }
+        }
+
+        async function register() {
+            const name = document.getElementById('register-name').value;
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            const errorDiv = document.getElementById('register-error');
+
+            if (!name || !email || !password) {
+                errorDiv.textContent = 'Please fill in all fields';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password,
+                        full_name: name
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Registration failed');
+                }
+
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+                errorDiv.classList.add('hidden');
+                showApp();
+
+            } catch (error) {
+                errorDiv.textContent = error.message;
+                errorDiv.classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('app-section').classList.add('hidden');
+            document.getElementById('login-email').value = '';
+            document.getElementById('login-password').value = '';
+        }
+
+        function showApp() {
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('app-section').classList.remove('hidden');
+            document.getElementById('user-name').textContent = currentUser.full_name;
+            loadJobs();
+        }
+
+        // Helper for authenticated requests
+        function authHeaders() {
+            return {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
 
         // Navigation
         function showSection(section) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('nav .nav-links button').forEach(b => b.classList.remove('active'));
 
             document.getElementById(`${section}-section`).classList.add('active');
             event.target.classList.add('active');
@@ -688,7 +970,13 @@
         // Load applied job IDs
         async function loadAppliedJobIds() {
             try {
-                const response = await fetch(`${API_URL}/api/applications`);
+                const response = await fetch(`${API_URL}/api/applications`, {
+                    headers: authHeaders()
+                });
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
                 const applications = await response.json();
                 appliedJobIds = new Set(applications.map(a => a.job_id));
             } catch (error) {
@@ -794,7 +1082,7 @@
             try {
                 const response = await fetch(`${API_URL}/api/applications`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({
                         job_id: jobId,
                         status: status,
@@ -803,6 +1091,11 @@
                         notes: notes || null
                     })
                 });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
 
                 if (!response.ok) {
                     const error = await response.json();
@@ -830,7 +1123,15 @@
             if (upcomingOnly) url += `upcoming_deadlines=true`;
 
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, {
+                    headers: authHeaders()
+                });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+
                 if (!response.ok) throw new Error('Failed to fetch applications');
                 const applications = await response.json();
 
@@ -890,7 +1191,7 @@
             try {
                 const response = await fetch(`${API_URL}/api/applications/${id}`, {
                     method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders(),
                     body: JSON.stringify({
                         status: status,
                         deadline: deadline || null,
@@ -898,6 +1199,11 @@
                         notes: notes || null
                     })
                 });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
 
                 if (!response.ok) throw new Error('Failed to update application');
 
@@ -914,8 +1220,14 @@
 
             try {
                 const response = await fetch(`${API_URL}/api/applications/${id}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: authHeaders()
                 });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
 
                 if (!response.ok) throw new Error('Failed to delete application');
 
@@ -932,7 +1244,15 @@
             container.innerHTML = '<div class="loading">Loading dashboard</div>';
 
             try {
-                const response = await fetch(`${API_URL}/api/dashboard/stats`);
+                const response = await fetch(`${API_URL}/api/dashboard/stats`, {
+                    headers: authHeaders()
+                });
+
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+
                 if (!response.ok) throw new Error('Failed to fetch stats');
                 const stats = await response.json();
 
@@ -990,15 +1310,20 @@
             if (e.key === 'Enter') loadJobs();
         });
 
+        // Login on Enter key
+        document.getElementById('login-password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+        document.getElementById('register-password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') register();
+        });
+
         // Close modals on overlay click
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', (e) => {
                 if (e.target === overlay) overlay.classList.remove('active');
             });
         });
-
-        // Initial load
-        loadJobs();
     </script>
 </body>
 </html>
