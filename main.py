@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime, date, timedelta
@@ -12,6 +12,9 @@ import os
 from dotenv import load_dotenv
 import jwt
 import bcrypt
+from fastapi.responses import StreamingResponse
+from resume_generator import generate_resume
+
 
 # Load environment variables
 load_dotenv()
@@ -23,8 +26,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 app = FastAPI(title="Interview AI API")
 
-# OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# Security scheme
+security = HTTPBearer()
 
 # Enable CORS for your frontend
 app.add_middleware(
@@ -38,9 +41,11 @@ app.add_middleware(
 # ============ AUTH MODELS ============
 
 class UserCreate(BaseModel):
+    name: str
     email: EmailStr
     password: str
-    full_name: str
+    phone: Optional[str] = None
+    location: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -57,7 +62,9 @@ class TokenData(BaseModel):
 class User(BaseModel):
     id: int
     email: str
-    full_name: str
+    name: str
+    phone: Optional[str]
+    location: Optional[str]
     created_at: datetime
 
 # ============ AUTH HELPER FUNCTIONS ============
@@ -91,31 +98,33 @@ def decode_access_token(token: str) -> Optional[TokenData]:
     except jwt.InvalidTokenError:
         return None
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    token = credentials.credentials
     token_data = decode_access_token(token)
+
     if token_data is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
 
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT id, email, full_name, created_at FROM users WHERE id = %s", (token_data.user_id,))
+    cursor.execute("SELECT id, email, name, phone, location, created_at FROM users WHERE id = %s", (token_data.user_id,))
     user = cursor.fetchone()
     cursor.close()
     conn.close()
 
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
     return user
 
 # ============ WORK EXPERIENCE MODELS ============
 
 class WorkExperienceCreate(BaseModel):
-    user_id: int
     company: str
     title: str
     start_date: date
@@ -145,7 +154,6 @@ class WorkExperience(BaseModel):
 # ============ EDUCATION MODELS ============
 
 class EducationCreate(BaseModel):
-    user_id: int
     school: str
     degree: str
     field_of_study: Optional[str] = None
@@ -175,7 +183,6 @@ class Education(BaseModel):
 # ============ SKILLS MODELS ============
 
 class SkillCreate(BaseModel):
-    user_id: int
     skill_name: str
     proficiency: Optional[str] = None  # beginner, intermediate, advanced, expert
 
@@ -193,7 +200,6 @@ class Skill(BaseModel):
 # ============ PROJECTS MODELS ============
 
 class ProjectCreate(BaseModel):
-    user_id: int
     title: str
     description: Optional[str] = None
     technologies: Optional[str] = None
@@ -223,6 +229,7 @@ class Project(BaseModel):
 # ============ COMPLETE RESUME MODEL ============
 
 class CompleteResume(BaseModel):
+    user: User
     work_experiences: List[WorkExperience]
     education: List[Education]
     skills: List[Skill]
@@ -305,10 +312,10 @@ async def register(user: UserCreate):
         # Hash password and create user
         hashed_password = hash_password(user.password)
         cursor.execute("""
-            INSERT INTO users (email, password_hash, full_name)
-            VALUES (%s, %s, %s)
-            RETURNING id, email, full_name
-        """, (user.email, hashed_password, user.full_name))
+            INSERT INTO users (email, password_hash, name, phone, location)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, email, name, phone, location
+        """, (user.email, hashed_password, user.name, user.phone, user.location))
 
         new_user = cursor.fetchone()
         conn.commit()
@@ -327,7 +334,9 @@ async def register(user: UserCreate):
             "user": {
                 "id": new_user['id'],
                 "email": new_user['email'],
-                "full_name": new_user['full_name']
+                "name": new_user['name'],
+                "phone": new_user['phone'],
+                "location": new_user['location']
             }
         }
 
@@ -337,26 +346,25 @@ async def register(user: UserCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/auth/login", response_model=dict)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(credentials: UserLogin):
     """Login and get access token"""
     try:
         conn = get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Find user by email (username field contains email)
+        # Find user by email
         cursor.execute(
-            "SELECT id, email, password_hash, full_name FROM users WHERE email = %s",
-            (form_data.username,)
+            "SELECT id, email, password_hash, name, phone, location FROM users WHERE email = %s",
+            (credentials.email,)
         )
         user = cursor.fetchone()
         cursor.close()
         conn.close()
 
-        if not user or not verify_password(form_data.password, user['password_hash']):
+        if not user or not verify_password(credentials.password, user['password_hash']):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
-                headers={"WWW-Authenticate": "Bearer"},
             )
 
         # Create access token
@@ -370,7 +378,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             "user": {
                 "id": user['id'],
                 "email": user['email'],
-                "full_name": user['full_name']
+                "name": user['name'],
+                "phone": user['phone'],
+                "location": user['location']
             }
         }
 
@@ -385,7 +395,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     return {
         "id": current_user['id'],
         "email": current_user['email'],
-        "full_name": current_user['full_name']
+        "name": current_user['name'],
+        "phone": current_user['phone'],
+        "location": current_user['location']
     }
 
 # ============ JOB ENDPOINTS ============
@@ -789,9 +801,696 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============ WORK EXPERIENCE ENDPOINTS ============
 
+@app.post("/api/work-experience", response_model=dict)
+async def create_work_experience(experience: WorkExperienceCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new work experience entry"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
+        cursor.execute("""
+            INSERT INTO work_experiences (user_id, company, title, start_date, end_date, is_current, responsibilities)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            current_user['id'],
+            experience.company,
+            experience.title,
+            experience.start_date,
+            experience.end_date,
+            experience.is_current,
+            experience.responsibilities
+        ))
 
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Work experience created successfully", "id": result['id']}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/work-experience", response_model=List[dict])
+async def get_work_experiences(current_user: dict = Depends(get_current_user)):
+    """Get all work experiences for current user"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM work_experiences
+            WHERE user_id = %s
+            ORDER BY is_current DESC, end_date DESC NULLS FIRST, start_date DESC
+        """, (current_user['id'],))
+
+        experiences = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return experiences
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/work-experience/{experience_id}", response_model=dict)
+async def get_work_experience(experience_id: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific work experience"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM work_experiences WHERE id = %s AND user_id = %s
+        """, (experience_id, current_user['id']))
+
+        experience = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not experience:
+            raise HTTPException(status_code=404, detail="Work experience not found")
+
+        return experience
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/work-experience/{experience_id}", response_model=dict)
+async def update_work_experience(experience_id: int, update: WorkExperienceUpdate, current_user: dict = Depends(get_current_user)):
+    """Update a work experience"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        updates = []
+        params = []
+
+        if update.company is not None:
+            updates.append("company = %s")
+            params.append(update.company)
+        if update.title is not None:
+            updates.append("title = %s")
+            params.append(update.title)
+        if update.start_date is not None:
+            updates.append("start_date = %s")
+            params.append(update.start_date)
+        if update.end_date is not None:
+            updates.append("end_date = %s")
+            params.append(update.end_date)
+        if update.is_current is not None:
+            updates.append("is_current = %s")
+            params.append(update.is_current)
+        if update.responsibilities is not None:
+            updates.append("responsibilities = %s")
+            params.append(update.responsibilities)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.extend([experience_id, current_user['id']])
+        query = f"UPDATE work_experiences SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING id"
+
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Work experience not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Work experience updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/work-experience/{experience_id}", response_model=dict)
+async def delete_work_experience(experience_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a work experience"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM work_experiences WHERE id = %s AND user_id = %s RETURNING id", (experience_id, current_user['id']))
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Work experience not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Work experience deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============ EDUCATION ENDPOINTS ============
+
+@app.post("/api/education", response_model=dict)
+async def create_education(education: EducationCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new education entry"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            INSERT INTO education (user_id, school, degree, field_of_study, start_date, end_date, gpa)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            current_user['id'],
+            education.school,
+            education.degree,
+            education.field_of_study,
+            education.start_date,
+            education.end_date,
+            education.gpa
+        ))
+
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Education created successfully", "id": result['id']}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/education", response_model=List[dict])
+async def get_education_list(current_user: dict = Depends(get_current_user)):
+    """Get all education entries for current user"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM education
+            WHERE user_id = %s
+            ORDER BY end_date DESC NULLS FIRST, start_date DESC
+        """, (current_user['id'],))
+
+        education = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return education
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/education/{education_id}", response_model=dict)
+async def get_education(education_id: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific education entry"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM education WHERE id = %s AND user_id = %s
+        """, (education_id, current_user['id']))
+
+        education = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not education:
+            raise HTTPException(status_code=404, detail="Education not found")
+
+        return education
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/education/{education_id}", response_model=dict)
+async def update_education(education_id: int, update: EducationUpdate, current_user: dict = Depends(get_current_user)):
+    """Update an education entry"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        updates = []
+        params = []
+
+        if update.school is not None:
+            updates.append("school = %s")
+            params.append(update.school)
+        if update.degree is not None:
+            updates.append("degree = %s")
+            params.append(update.degree)
+        if update.field_of_study is not None:
+            updates.append("field_of_study = %s")
+            params.append(update.field_of_study)
+        if update.start_date is not None:
+            updates.append("start_date = %s")
+            params.append(update.start_date)
+        if update.end_date is not None:
+            updates.append("end_date = %s")
+            params.append(update.end_date)
+        if update.gpa is not None:
+            updates.append("gpa = %s")
+            params.append(update.gpa)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.extend([education_id, current_user['id']])
+        query = f"UPDATE education SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING id"
+
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Education not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Education updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/education/{education_id}", response_model=dict)
+async def delete_education(education_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete an education entry"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM education WHERE id = %s AND user_id = %s RETURNING id", (education_id, current_user['id']))
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Education not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Education deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============ SKILLS ENDPOINTS ============
+
+@app.post("/api/skills", response_model=dict)
+async def create_skill(skill: SkillCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new skill"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            INSERT INTO skills (user_id, skill_name, proficiency)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (
+            current_user['id'],
+            skill.skill_name,
+            skill.proficiency
+        ))
+
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Skill created successfully", "id": result['id']}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/skills", response_model=List[dict])
+async def get_skills(current_user: dict = Depends(get_current_user)):
+    """Get all skills for current user"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM skills
+            WHERE user_id = %s
+            ORDER BY skill_name ASC
+        """, (current_user['id'],))
+
+        skills = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return skills
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/skills/{skill_id}", response_model=dict)
+async def get_skill(skill_id: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific skill"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM skills WHERE id = %s AND user_id = %s
+        """, (skill_id, current_user['id']))
+
+        skill = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not skill:
+            raise HTTPException(status_code=404, detail="Skill not found")
+
+        return skill
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/skills/{skill_id}", response_model=dict)
+async def update_skill(skill_id: int, update: SkillUpdate, current_user: dict = Depends(get_current_user)):
+    """Update a skill"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        updates = []
+        params = []
+
+        if update.skill_name is not None:
+            updates.append("skill_name = %s")
+            params.append(update.skill_name)
+        if update.proficiency is not None:
+            updates.append("proficiency = %s")
+            params.append(update.proficiency)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.extend([skill_id, current_user['id']])
+        query = f"UPDATE skills SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING id"
+
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Skill not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Skill updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/skills/{skill_id}", response_model=dict)
+async def delete_skill(skill_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a skill"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM skills WHERE id = %s AND user_id = %s RETURNING id", (skill_id, current_user['id']))
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Skill not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Skill deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============ PROJECTS ENDPOINTS ============
+
+@app.post("/api/projects", response_model=dict)
+async def create_project(project: ProjectCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new project"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            INSERT INTO projects (user_id, title, description, technologies, url, start_date, end_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            current_user['id'],
+            project.title,
+            project.description,
+            project.technologies,
+            project.url,
+            project.start_date,
+            project.end_date
+        ))
+
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Project created successfully", "id": result['id']}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects", response_model=List[dict])
+async def get_projects(current_user: dict = Depends(get_current_user)):
+    """Get all projects for current user"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM projects
+            WHERE user_id = %s
+            ORDER BY end_date DESC NULLS FIRST, start_date DESC
+        """, (current_user['id'],))
+
+        projects = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return projects
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_id}", response_model=dict)
+async def get_project(project_id: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific project"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT * FROM projects WHERE id = %s AND user_id = %s
+        """, (project_id, current_user['id']))
+
+        project = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        return project
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/projects/{project_id}", response_model=dict)
+async def update_project(project_id: int, update: ProjectUpdate, current_user: dict = Depends(get_current_user)):
+    """Update a project"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        updates = []
+        params = []
+
+        if update.title is not None:
+            updates.append("title = %s")
+            params.append(update.title)
+        if update.description is not None:
+            updates.append("description = %s")
+            params.append(update.description)
+        if update.technologies is not None:
+            updates.append("technologies = %s")
+            params.append(update.technologies)
+        if update.url is not None:
+            updates.append("url = %s")
+            params.append(update.url)
+        if update.start_date is not None:
+            updates.append("start_date = %s")
+            params.append(update.start_date)
+        if update.end_date is not None:
+            updates.append("end_date = %s")
+            params.append(update.end_date)
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.extend([project_id, current_user['id']])
+        query = f"UPDATE projects SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING id"
+
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Project updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/projects/{project_id}", response_model=dict)
+async def delete_project(project_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a project"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM projects WHERE id = %s AND user_id = %s RETURNING id", (project_id, current_user['id']))
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Project deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============ COMPLETE RESUME ENDPOINT ============
+
+@app.get("/api/resume", response_model=dict)
+async def get_complete_resume(current_user: dict = Depends(get_current_user)):
+    """Get complete resume data for current user"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Get work experiences
+        cursor.execute("""
+            SELECT * FROM work_experiences WHERE user_id = %s
+            ORDER BY is_current DESC, end_date DESC NULLS FIRST
+        """, (current_user['id'],))
+        work_experiences = cursor.fetchall()
+
+        # Get education
+        cursor.execute("""
+            SELECT * FROM education WHERE user_id = %s
+            ORDER BY end_date DESC NULLS FIRST
+        """, (current_user['id'],))
+        education = cursor.fetchall()
+
+        # Get skills
+        cursor.execute("""
+            SELECT * FROM skills WHERE user_id = %s ORDER BY skill_name
+        """, (current_user['id'],))
+        skills = cursor.fetchall()
+
+        # Get projects
+        cursor.execute("""
+            SELECT * FROM projects WHERE user_id = %s
+            ORDER BY end_date DESC NULLS FIRST
+        """, (current_user['id'],))
+        projects = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "user": {
+                "id": current_user['id'],
+                "name": current_user['name'],
+                "email": current_user['email'],
+                "phone": current_user['phone'],
+                "location": current_user['location']
+            },
+            "work_experiences": work_experiences,
+            "education": education,
+            "skills": skills,
+            "projects": projects
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/{user_id}/resume/download")
+async def download_resume(user_id: int, current_user: dict = Depends(get_current_user)):
+    """
+    Generate and download resume as DOCX
+    """
+    # Make sure user can only download their own resume
+    if current_user['id'] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this resume")
+    
+    try:
+        # Generate resume
+        resume_file = generate_resume(user_id)
+        
+        # Return as downloadable file
+        return StreamingResponse(
+            resume_file,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename=resume_{current_user['name'].replace(' ', '_')}.docx"
+            }
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

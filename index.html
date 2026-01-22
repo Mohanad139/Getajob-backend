@@ -310,21 +310,6 @@
             color: #1565c0;
         }
 
-        .job-card .tag.status.interviewed {
-            background: #fff3e0;
-            color: #f57c00;
-        }
-
-        .job-card .tag.status.offered {
-            background: #e8f5e9;
-            color: #388e3c;
-        }
-
-        .job-card .tag.status.rejected {
-            background: #ffebee;
-            color: #c62828;
-        }
-
         .job-card .description {
             color: #666;
             font-size: 0.9rem;
@@ -439,6 +424,188 @@
             font-size: 0.9rem;
         }
 
+        /* Resume Section Styles */
+        .resume-section {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 30px;
+        }
+
+        .resume-sidebar {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            height: fit-content;
+            position: sticky;
+            top: 80px;
+        }
+
+        .resume-sidebar h3 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .resume-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .resume-nav button {
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border: none;
+            border-radius: 8px;
+            text-align: left;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        .resume-nav button:hover {
+            background: #e8e8e8;
+        }
+
+        .resume-nav button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .resume-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .resume-content h2 {
+            margin-bottom: 20px;
+            color: #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .resume-content h2 button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .resume-item {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .resume-item h4 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .resume-item .subtitle {
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .resume-item .dates {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .resume-item .description {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .resume-item .item-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .resume-item .item-actions button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .resume-item .item-actions .edit-btn {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .resume-item .item-actions .delete-btn {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .skill-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .skill-tag {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .skill-tag .proficiency {
+            background: rgba(255,255,255,0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+        }
+
+        .skill-tag .delete-skill {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+
+        .skill-tag .delete-skill:hover {
+            opacity: 1;
+        }
+
+        .download-resume-btn {
+            margin-top: 20px;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #388e3c 0%, #2e7d32 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            width: 100%;
+        }
+
+        .download-resume-btn:hover {
+            opacity: 0.9;
+        }
+
         /* Modal */
         .modal-overlay {
             position: fixed;
@@ -520,6 +687,22 @@
         .modal .btn-submit {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
         }
 
         /* Loading & Error States */
@@ -628,8 +811,39 @@
             display: block;
         }
 
+        .resume-tab {
+            display: none;
+        }
+
+        .resume-tab.active {
+            display: block;
+        }
+
         .hidden {
             display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            .resume-section {
+                grid-template-columns: 1fr;
+            }
+
+            .resume-sidebar {
+                position: static;
+            }
+
+            .resume-nav {
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            nav .nav-links {
+                flex-wrap: wrap;
+            }
         }
     </style>
 </head>
@@ -674,6 +888,14 @@
                 <label>Password</label>
                 <input type="password" id="register-password" placeholder="Create a password">
             </div>
+            <div class="form-group">
+                <label>Phone (optional)</label>
+                <input type="tel" id="register-phone" placeholder="Enter your phone number">
+            </div>
+            <div class="form-group">
+                <label>Location (optional)</label>
+                <input type="text" id="register-location" placeholder="Enter your city">
+            </div>
             <button class="btn-primary" onclick="register()">Register</button>
             <p class="switch-auth">Already have an account? <a onclick="showLogin()">Login</a></p>
         </div>
@@ -687,6 +909,7 @@
                 <div class="nav-links">
                     <button class="active" onclick="showSection('jobs')">Jobs</button>
                     <button onclick="showSection('applications')">My Applications</button>
+                    <button onclick="showSection('resume')">My Resume</button>
                     <button onclick="showSection('dashboard')">Dashboard</button>
                 </div>
                 <div class="user-info">
@@ -724,6 +947,48 @@
                     </label>
                 </div>
                 <div id="applications-container" class="applications-list"></div>
+            </div>
+
+            <!-- Resume Section -->
+            <div id="resume-section" class="section">
+                <div class="resume-section">
+                    <div class="resume-sidebar">
+                        <h3>Resume Builder</h3>
+                        <div class="resume-nav">
+                            <button class="active" onclick="showResumeTab('work')">Work Experience</button>
+                            <button onclick="showResumeTab('education')">Education</button>
+                            <button onclick="showResumeTab('skills')">Skills</button>
+                            <button onclick="showResumeTab('projects')">Projects</button>
+                        </div>
+                        <button class="download-resume-btn" onclick="downloadResume()">Download Resume</button>
+                    </div>
+
+                    <div class="resume-content">
+                        <!-- Work Experience Tab -->
+                        <div id="work-tab" class="resume-tab active">
+                            <h2>Work Experience <button onclick="openWorkModal()">+ Add</button></h2>
+                            <div id="work-list"></div>
+                        </div>
+
+                        <!-- Education Tab -->
+                        <div id="education-tab" class="resume-tab">
+                            <h2>Education <button onclick="openEducationModal()">+ Add</button></h2>
+                            <div id="education-list"></div>
+                        </div>
+
+                        <!-- Skills Tab -->
+                        <div id="skills-tab" class="resume-tab">
+                            <h2>Skills <button onclick="openSkillModal()">+ Add</button></h2>
+                            <div id="skills-list" class="skill-tags"></div>
+                        </div>
+
+                        <!-- Projects Tab -->
+                        <div id="projects-tab" class="resume-tab">
+                            <h2>Projects <button onclick="openProjectModal()">+ Add</button></h2>
+                            <div id="projects-list"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Dashboard Section -->
@@ -799,6 +1064,146 @@
         </div>
     </div>
 
+    <!-- Work Experience Modal -->
+    <div class="modal-overlay" id="work-modal">
+        <div class="modal">
+            <h2 id="work-modal-title">Add Work Experience</h2>
+            <input type="hidden" id="work-id">
+            <div class="form-group">
+                <label>Company *</label>
+                <input type="text" id="work-company" placeholder="Company name">
+            </div>
+            <div class="form-group">
+                <label>Job Title *</label>
+                <input type="text" id="work-title" placeholder="Your job title">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start Date *</label>
+                    <input type="date" id="work-start">
+                </div>
+                <div class="form-group">
+                    <label>End Date</label>
+                    <input type="date" id="work-end">
+                </div>
+            </div>
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="work-current" onchange="toggleEndDate()">
+                <label for="work-current">I currently work here</label>
+            </div>
+            <div class="form-group">
+                <label>Responsibilities</label>
+                <textarea id="work-responsibilities" placeholder="Describe your responsibilities (use new lines for bullet points)"></textarea>
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('work-modal')">Cancel</button>
+                <button class="btn-submit" onclick="saveWorkExperience()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Education Modal -->
+    <div class="modal-overlay" id="education-modal">
+        <div class="modal">
+            <h2 id="education-modal-title">Add Education</h2>
+            <input type="hidden" id="education-id">
+            <div class="form-group">
+                <label>School *</label>
+                <input type="text" id="education-school" placeholder="School or university name">
+            </div>
+            <div class="form-group">
+                <label>Degree *</label>
+                <input type="text" id="education-degree" placeholder="e.g., Bachelor of Science">
+            </div>
+            <div class="form-group">
+                <label>Field of Study</label>
+                <input type="text" id="education-field" placeholder="e.g., Computer Science">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start Date</label>
+                    <input type="date" id="education-start">
+                </div>
+                <div class="form-group">
+                    <label>End Date</label>
+                    <input type="date" id="education-end">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>GPA</label>
+                <input type="text" id="education-gpa" placeholder="e.g., 3.8/4.0">
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('education-modal')">Cancel</button>
+                <button class="btn-submit" onclick="saveEducation()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skill Modal -->
+    <div class="modal-overlay" id="skill-modal">
+        <div class="modal">
+            <h2 id="skill-modal-title">Add Skill</h2>
+            <input type="hidden" id="skill-id">
+            <div class="form-group">
+                <label>Skill Name *</label>
+                <input type="text" id="skill-name" placeholder="e.g., Python, JavaScript, Project Management">
+            </div>
+            <div class="form-group">
+                <label>Proficiency</label>
+                <select id="skill-proficiency">
+                    <option value="">Select proficiency</option>
+                    <option value="Beginner">Beginner</option>
+                    <option value="Intermediate">Intermediate</option>
+                    <option value="Advanced">Advanced</option>
+                    <option value="Expert">Expert</option>
+                </select>
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('skill-modal')">Cancel</button>
+                <button class="btn-submit" onclick="saveSkill()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Modal -->
+    <div class="modal-overlay" id="project-modal">
+        <div class="modal">
+            <h2 id="project-modal-title">Add Project</h2>
+            <input type="hidden" id="project-id">
+            <div class="form-group">
+                <label>Project Title *</label>
+                <input type="text" id="project-title" placeholder="Project name">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="project-description" placeholder="Describe the project (use new lines for bullet points)"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Technologies Used</label>
+                <input type="text" id="project-technologies" placeholder="e.g., React, Node.js, PostgreSQL">
+            </div>
+            <div class="form-group">
+                <label>Project URL</label>
+                <input type="url" id="project-url" placeholder="https://...">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start Date</label>
+                    <input type="date" id="project-start">
+                </div>
+                <div class="form-group">
+                    <label>End Date</label>
+                    <input type="date" id="project-end">
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal('project-modal')">Cancel</button>
+                <button class="btn-submit" onclick="saveProject()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const API_URL = 'http://localhost:8000';
         let currentPage = 0;
@@ -837,14 +1242,10 @@
             }
 
             try {
-                const formData = new URLSearchParams();
-                formData.append('username', email);
-                formData.append('password', password);
-
                 const response = await fetch(`${API_URL}/api/auth/login`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: formData
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
                 });
 
                 const data = await response.json();
@@ -871,10 +1272,12 @@
             const name = document.getElementById('register-name').value;
             const email = document.getElementById('register-email').value;
             const password = document.getElementById('register-password').value;
+            const phone = document.getElementById('register-phone').value;
+            const location = document.getElementById('register-location').value;
             const errorDiv = document.getElementById('register-error');
 
             if (!name || !email || !password) {
-                errorDiv.textContent = 'Please fill in all fields';
+                errorDiv.textContent = 'Please fill in all required fields';
                 errorDiv.classList.remove('hidden');
                 return;
             }
@@ -884,9 +1287,11 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        name: name,
                         email: email,
                         password: password,
-                        full_name: name
+                        phone: phone || null,
+                        location: location || null
                     })
                 });
 
@@ -924,7 +1329,7 @@
         function showApp() {
             document.getElementById('auth-section').classList.add('hidden');
             document.getElementById('app-section').classList.remove('hidden');
-            document.getElementById('user-name').textContent = currentUser.full_name;
+            document.getElementById('user-name').textContent = currentUser.name;
             loadJobs();
         }
 
@@ -947,6 +1352,16 @@
             if (section === 'jobs') loadJobs();
             else if (section === 'applications') loadApplications();
             else if (section === 'dashboard') loadDashboard();
+            else if (section === 'resume') loadResumeData();
+        }
+
+        // Resume tab navigation
+        function showResumeTab(tab) {
+            document.querySelectorAll('.resume-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.resume-nav button').forEach(b => b.classList.remove('active'));
+
+            document.getElementById(`${tab}-tab`).classList.add('active');
+            event.target.classList.add('active');
         }
 
         // Toast notifications
@@ -965,6 +1380,14 @@
 
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('active');
+        }
+
+        function toggleEndDate() {
+            const isChecked = document.getElementById('work-current').checked;
+            document.getElementById('work-end').disabled = isChecked;
+            if (isChecked) {
+                document.getElementById('work-end').value = '';
+            }
         }
 
         // Load applied job IDs
@@ -1294,12 +1717,471 @@
             }
         }
 
+        // ============ RESUME FUNCTIONS ============
+
+        async function loadResumeData() {
+            loadWorkExperiences();
+            loadEducation();
+            loadSkills();
+            loadProjects();
+        }
+
+        // Work Experience
+        async function loadWorkExperiences() {
+            const container = document.getElementById('work-list');
+            container.innerHTML = '<div class="loading">Loading</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/work-experience`, {
+                    headers: authHeaders()
+                });
+                if (response.status === 401) { logout(); return; }
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-data">No work experience added yet.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.map(work => `
+                    <div class="resume-item">
+                        <div class="item-actions">
+                            <button class="edit-btn" onclick="editWorkExperience(${work.id})">Edit</button>
+                            <button class="delete-btn" onclick="deleteWorkExperience(${work.id})">Delete</button>
+                        </div>
+                        <h4>${escapeHtml(work.title)}</h4>
+                        <div class="subtitle">${escapeHtml(work.company)}</div>
+                        <div class="dates">${formatDate(work.start_date)} - ${work.is_current ? 'Present' : formatDate(work.end_date)}</div>
+                        ${work.responsibilities ? `<div class="description">${escapeHtml(work.responsibilities)}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function openWorkModal(data = null) {
+            document.getElementById('work-modal-title').textContent = data ? 'Edit Work Experience' : 'Add Work Experience';
+            document.getElementById('work-id').value = data?.id || '';
+            document.getElementById('work-company').value = data?.company || '';
+            document.getElementById('work-title').value = data?.title || '';
+            document.getElementById('work-start').value = data?.start_date || '';
+            document.getElementById('work-end').value = data?.end_date || '';
+            document.getElementById('work-current').checked = data?.is_current || false;
+            document.getElementById('work-responsibilities').value = data?.responsibilities || '';
+            toggleEndDate();
+            openModal('work-modal');
+        }
+
+        async function editWorkExperience(id) {
+            try {
+                const response = await fetch(`${API_URL}/api/work-experience/${id}`, {
+                    headers: authHeaders()
+                });
+                const data = await response.json();
+                openWorkModal(data);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function saveWorkExperience() {
+            const id = document.getElementById('work-id').value;
+            const data = {
+                company: document.getElementById('work-company').value,
+                title: document.getElementById('work-title').value,
+                start_date: document.getElementById('work-start').value,
+                end_date: document.getElementById('work-end').value || null,
+                is_current: document.getElementById('work-current').checked,
+                responsibilities: document.getElementById('work-responsibilities').value || null
+            };
+
+            if (!data.company || !data.title || !data.start_date) {
+                showToast('Please fill in required fields', 'error');
+                return;
+            }
+
+            try {
+                const url = id ? `${API_URL}/api/work-experience/${id}` : `${API_URL}/api/work-experience`;
+                const method = id ? 'PATCH' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: authHeaders(),
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to save');
+
+                closeModal('work-modal');
+                showToast('Work experience saved!');
+                loadWorkExperiences();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteWorkExperience(id) {
+            if (!confirm('Delete this work experience?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/work-experience/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                if (!response.ok) throw new Error('Failed to delete');
+                showToast('Deleted');
+                loadWorkExperiences();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Education
+        async function loadEducation() {
+            const container = document.getElementById('education-list');
+            container.innerHTML = '<div class="loading">Loading</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/education`, {
+                    headers: authHeaders()
+                });
+                if (response.status === 401) { logout(); return; }
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-data">No education added yet.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.map(edu => `
+                    <div class="resume-item">
+                        <div class="item-actions">
+                            <button class="edit-btn" onclick="editEducation(${edu.id})">Edit</button>
+                            <button class="delete-btn" onclick="deleteEducation(${edu.id})">Delete</button>
+                        </div>
+                        <h4>${escapeHtml(edu.school)}</h4>
+                        <div class="subtitle">${escapeHtml(edu.degree)}${edu.field_of_study ? ', ' + escapeHtml(edu.field_of_study) : ''}</div>
+                        <div class="dates">${formatDate(edu.start_date)} - ${formatDate(edu.end_date)}</div>
+                        ${edu.gpa ? `<div class="description">GPA: ${escapeHtml(edu.gpa)}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function openEducationModal(data = null) {
+            document.getElementById('education-modal-title').textContent = data ? 'Edit Education' : 'Add Education';
+            document.getElementById('education-id').value = data?.id || '';
+            document.getElementById('education-school').value = data?.school || '';
+            document.getElementById('education-degree').value = data?.degree || '';
+            document.getElementById('education-field').value = data?.field_of_study || '';
+            document.getElementById('education-start').value = data?.start_date || '';
+            document.getElementById('education-end').value = data?.end_date || '';
+            document.getElementById('education-gpa').value = data?.gpa || '';
+            openModal('education-modal');
+        }
+
+        async function editEducation(id) {
+            try {
+                const response = await fetch(`${API_URL}/api/education/${id}`, {
+                    headers: authHeaders()
+                });
+                const data = await response.json();
+                openEducationModal(data);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function saveEducation() {
+            const id = document.getElementById('education-id').value;
+            const data = {
+                school: document.getElementById('education-school').value,
+                degree: document.getElementById('education-degree').value,
+                field_of_study: document.getElementById('education-field').value || null,
+                start_date: document.getElementById('education-start').value || null,
+                end_date: document.getElementById('education-end').value || null,
+                gpa: document.getElementById('education-gpa').value || null
+            };
+
+            if (!data.school || !data.degree) {
+                showToast('Please fill in required fields', 'error');
+                return;
+            }
+
+            try {
+                const url = id ? `${API_URL}/api/education/${id}` : `${API_URL}/api/education`;
+                const method = id ? 'PATCH' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: authHeaders(),
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to save');
+
+                closeModal('education-modal');
+                showToast('Education saved!');
+                loadEducation();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteEducation(id) {
+            if (!confirm('Delete this education?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/education/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                if (!response.ok) throw new Error('Failed to delete');
+                showToast('Deleted');
+                loadEducation();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Skills
+        async function loadSkills() {
+            const container = document.getElementById('skills-list');
+            container.innerHTML = '<div class="loading">Loading</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/skills`, {
+                    headers: authHeaders()
+                });
+                if (response.status === 401) { logout(); return; }
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-data">No skills added yet.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.map(skill => `
+                    <div class="skill-tag">
+                        ${escapeHtml(skill.skill_name)}
+                        ${skill.proficiency ? `<span class="proficiency">${escapeHtml(skill.proficiency)}</span>` : ''}
+                        <button class="delete-skill" onclick="deleteSkill(${skill.id})">&times;</button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function openSkillModal(data = null) {
+            document.getElementById('skill-modal-title').textContent = data ? 'Edit Skill' : 'Add Skill';
+            document.getElementById('skill-id').value = data?.id || '';
+            document.getElementById('skill-name').value = data?.skill_name || '';
+            document.getElementById('skill-proficiency').value = data?.proficiency || '';
+            openModal('skill-modal');
+        }
+
+        async function saveSkill() {
+            const id = document.getElementById('skill-id').value;
+            const data = {
+                skill_name: document.getElementById('skill-name').value,
+                proficiency: document.getElementById('skill-proficiency').value || null
+            };
+
+            if (!data.skill_name) {
+                showToast('Please enter a skill name', 'error');
+                return;
+            }
+
+            try {
+                const url = id ? `${API_URL}/api/skills/${id}` : `${API_URL}/api/skills`;
+                const method = id ? 'PATCH' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: authHeaders(),
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to save');
+
+                closeModal('skill-modal');
+                showToast('Skill saved!');
+                loadSkills();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteSkill(id) {
+            try {
+                const response = await fetch(`${API_URL}/api/skills/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                if (!response.ok) throw new Error('Failed to delete');
+                showToast('Skill deleted');
+                loadSkills();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Projects
+        async function loadProjects() {
+            const container = document.getElementById('projects-list');
+            container.innerHTML = '<div class="loading">Loading</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/projects`, {
+                    headers: authHeaders()
+                });
+                if (response.status === 401) { logout(); return; }
+                const data = await response.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<div class="no-data">No projects added yet.</div>';
+                    return;
+                }
+
+                container.innerHTML = data.map(project => `
+                    <div class="resume-item">
+                        <div class="item-actions">
+                            <button class="edit-btn" onclick="editProject(${project.id})">Edit</button>
+                            <button class="delete-btn" onclick="deleteProject(${project.id})">Delete</button>
+                        </div>
+                        <h4>${escapeHtml(project.title)}</h4>
+                        ${project.technologies ? `<div class="subtitle">${escapeHtml(project.technologies)}</div>` : ''}
+                        <div class="dates">${formatDate(project.start_date)} - ${project.end_date ? formatDate(project.end_date) : 'Ongoing'}</div>
+                        ${project.description ? `<div class="description">${escapeHtml(project.description)}</div>` : ''}
+                        ${project.url ? `<a href="${escapeHtml(project.url)}" target="_blank" style="color: #667eea; font-size: 0.9rem;">View Project</a>` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        function openProjectModal(data = null) {
+            document.getElementById('project-modal-title').textContent = data ? 'Edit Project' : 'Add Project';
+            document.getElementById('project-id').value = data?.id || '';
+            document.getElementById('project-title').value = data?.title || '';
+            document.getElementById('project-description').value = data?.description || '';
+            document.getElementById('project-technologies').value = data?.technologies || '';
+            document.getElementById('project-url').value = data?.url || '';
+            document.getElementById('project-start').value = data?.start_date || '';
+            document.getElementById('project-end').value = data?.end_date || '';
+            openModal('project-modal');
+        }
+
+        async function editProject(id) {
+            try {
+                const response = await fetch(`${API_URL}/api/projects/${id}`, {
+                    headers: authHeaders()
+                });
+                const data = await response.json();
+                openProjectModal(data);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function saveProject() {
+            const id = document.getElementById('project-id').value;
+            const data = {
+                title: document.getElementById('project-title').value,
+                description: document.getElementById('project-description').value || null,
+                technologies: document.getElementById('project-technologies').value || null,
+                url: document.getElementById('project-url').value || null,
+                start_date: document.getElementById('project-start').value || null,
+                end_date: document.getElementById('project-end').value || null
+            };
+
+            if (!data.title) {
+                showToast('Please enter a project title', 'error');
+                return;
+            }
+
+            try {
+                const url = id ? `${API_URL}/api/projects/${id}` : `${API_URL}/api/projects`;
+                const method = id ? 'PATCH' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: authHeaders(),
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) throw new Error('Failed to save');
+
+                closeModal('project-modal');
+                showToast('Project saved!');
+                loadProjects();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteProject(id) {
+            if (!confirm('Delete this project?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/projects/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                if (!response.ok) throw new Error('Failed to delete');
+                showToast('Project deleted');
+                loadProjects();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Download Resume
+        async function downloadResume() {
+            try {
+                const response = await fetch(`${API_URL}/api/users/${currentUser.id}/resume/download`, {
+                    headers: authHeaders()
+                });
+
+                if (response.status === 401) { logout(); return; }
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to download');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `resume_${currentUser.name.replace(/ /g, '_')}.docx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                showToast('Resume downloaded!');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
         // Utility functions
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         }
 
         // Event listeners
