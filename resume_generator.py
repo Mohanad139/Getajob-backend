@@ -331,3 +331,195 @@ def generate_resume(user_id: int) -> io.BytesIO:
     file_stream.seek(0)
 
     return file_stream
+
+
+def generate_tailored_resume(tailored_data: dict, job_title: str) -> io.BytesIO:
+    """
+    Generate a tailored DOCX resume using AI-rephrased content
+    tailored_data contains: user, education, original_work_experiences, original_projects, original_skills, tailored
+    """
+
+    user = tailored_data['user']
+    education = tailored_data['education']
+    original_work = tailored_data['original_work_experiences']
+    original_projects = tailored_data['original_projects']
+    original_skills = tailored_data['original_skills']
+    tailored = tailored_data['tailored']
+
+    # Create document
+    document = Document()
+
+    # Set margins
+    sections = document.sections
+    for section in sections:
+        section.top_margin = Inches(0.5)
+        section.bottom_margin = Inches(0.5)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
+
+    # Set default font
+    style = document.styles['Normal']
+    font = style.font
+    font.name = 'Times New Roman'
+    font.size = Pt(11)
+
+    # ==================== HEADER - NAME ====================
+    name_para = document.add_paragraph()
+    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    name_run = name_para.add_run(user['name'])
+    name_run.font.size = Pt(18)
+    name_run.font.bold = True
+    name_run.font.name = 'Times New Roman'
+    name_para.paragraph_format.space_after = Pt(0)
+
+    # ==================== CONTACT INFO ====================
+    contact_para = document.add_paragraph()
+    contact_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    contact_parts = []
+
+    if user.get('location'):
+        contact_parts.append(user['location'])
+    if user.get('phone'):
+        contact_parts.append(user['phone'])
+    if user.get('email'):
+        contact_parts.append(user['email'])
+
+    contact_run = contact_para.add_run(' | '.join(contact_parts))
+    contact_run.font.size = Pt(10)
+    contact_run.font.name = 'Times New Roman'
+    contact_para.paragraph_format.space_after = Pt(6)
+
+    # ==================== PROFESSIONAL SUMMARY ====================
+    if tailored.get('tailored_summary'):
+        add_section_heading(document, 'PROFESSIONAL SUMMARY')
+        summary_para = document.add_paragraph()
+        summary_run = summary_para.add_run(tailored['tailored_summary'])
+        summary_run.font.name = 'Times New Roman'
+        summary_run.font.size = Pt(11)
+        summary_para.paragraph_format.space_after = Pt(6)
+
+    # ==================== EDUCATION ====================
+    if education:
+        add_section_heading(document, 'EDUCATION')
+
+        for edu in education:
+            school_text = f"{edu['school']}"
+            date_text = format_date(edu['end_date']) if edu.get('end_date') else ""
+            add_entry_with_date(document, school_text, date_text, bold_left=True)
+
+            degree_text = edu['degree']
+            if edu.get('field_of_study'):
+                degree_text += f", {edu['field_of_study']}"
+            add_subtitle(document, degree_text)
+
+            if edu.get('gpa'):
+                gpa_para = document.add_paragraph()
+                run = gpa_para.add_run(f"GPA: {edu['gpa']}")
+                run.font.name = 'Times New Roman'
+                run.font.size = Pt(11)
+                gpa_para.paragraph_format.space_after = Pt(6)
+            else:
+                document.add_paragraph().paragraph_format.space_after = Pt(0)
+
+    # ==================== SKILLS (Tailored order) ====================
+    tailored_skills = tailored.get('tailored_skills', [])
+    if tailored_skills:
+        add_section_heading(document, 'SKILLS')
+        skills_para = document.add_paragraph()
+        skills_run = skills_para.add_run(', '.join(tailored_skills))
+        skills_run.font.name = 'Times New Roman'
+        skills_run.font.size = Pt(11)
+        skills_para.paragraph_format.space_after = Pt(6)
+
+    # ==================== WORK EXPERIENCE (Tailored) ====================
+    tailored_work = tailored.get('tailored_work_experiences', [])
+    if tailored_work or original_work:
+        add_section_heading(document, 'EXPERIENCE')
+
+        # Create a map of tailored work by ID
+        tailored_work_map = {w.get('id'): w for w in tailored_work}
+
+        for work in original_work:
+            # Get tailored version if available
+            tailored_version = tailored_work_map.get(work['id'], {})
+
+            date_start = format_date(work['start_date'])
+            date_end = format_date(work['end_date']) if not work.get('is_current') else "Present"
+            date_range = f"{date_start} - {date_end}"
+
+            company = tailored_version.get('company', work['company'])
+            title = tailored_version.get('title', work['title'])
+
+            add_entry_with_date(document, company, date_range, bold_left=True)
+            add_subtitle(document, title)
+
+            # Use tailored responsibilities if available, otherwise original
+            responsibilities = tailored_version.get('responsibilities', work.get('responsibilities', ''))
+
+            if responsibilities:
+                resp_list = [r.strip() for r in responsibilities.split('\n') if r.strip()]
+                if len(resp_list) <= 1 and responsibilities:
+                    resp_list = [responsibilities]
+
+                for resp in resp_list:
+                    if resp:
+                        add_bullet_point(document, resp)
+
+            document.add_paragraph().paragraph_format.space_after = Pt(0)
+
+    # ==================== PROJECTS (Tailored) ====================
+    tailored_projects = tailored.get('tailored_projects', [])
+    if tailored_projects or original_projects:
+        add_section_heading(document, 'PROJECTS')
+
+        # Create a map of tailored projects by ID
+        tailored_proj_map = {p.get('id'): p for p in tailored_projects}
+
+        for project in original_projects:
+            tailored_version = tailored_proj_map.get(project['id'], {})
+
+            date_range = ""
+            if project.get('start_date'):
+                date_start = format_date(project['start_date'])
+                date_end = format_date(project['end_date']) if project.get('end_date') else "Ongoing"
+                date_range = f"{date_start} - {date_end}"
+
+            title = tailored_version.get('title', project['title'])
+            add_entry_with_date(document, title, date_range, bold_left=True)
+
+            if project.get('technologies'):
+                tech_para = document.add_paragraph()
+                tech_run = tech_para.add_run(f"Technologies: {project['technologies']}")
+                tech_run.font.name = 'Times New Roman'
+                tech_run.font.size = Pt(10)
+                tech_run.font.italic = True
+                tech_para.paragraph_format.space_after = Pt(2)
+
+            # Use tailored description if available
+            description = tailored_version.get('description', project.get('description', ''))
+
+            if description:
+                desc_list = [d.strip() for d in description.split('\n') if d.strip()]
+                if len(desc_list) <= 1 and description:
+                    desc_list = [description]
+
+                for desc in desc_list:
+                    if desc:
+                        add_bullet_point(document, desc)
+
+            if project.get('url'):
+                url_para = document.add_paragraph()
+                url_run = url_para.add_run(f"Link: {project['url']}")
+                url_run.font.name = 'Times New Roman'
+                url_run.font.size = Pt(10)
+                url_run.font.color.rgb = RGBColor(0, 0, 255)
+                url_para.paragraph_format.space_after = Pt(2)
+
+            document.add_paragraph().paragraph_format.space_after = Pt(0)
+
+    # Save to BytesIO
+    file_stream = io.BytesIO()
+    document.save(file_stream)
+    file_stream.seek(0)
+
+    return file_stream

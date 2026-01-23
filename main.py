@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 import jwt
 import bcrypt
 from fastapi.responses import StreamingResponse
-from resume_generator import generate_resume
+from resume_generator import generate_resume, generate_tailored_resume
+from resume_ai import get_user_resume_data, analyze_resume_match, tailor_resume
 
 
 # Load environment variables
@@ -235,6 +236,21 @@ class CompleteResume(BaseModel):
     skills: List[Skill]
     projects: List[Project]
 
+# ============ Resume rephrase ============
+
+
+class ResumeAnalysisRequest(BaseModel):
+    job_id: str
+
+class ResumeAnalysisResponse(BaseModel):
+    match_score: int
+    strengths: List[str]
+    gaps: List[str]
+    suggestions: List[str]
+    keywords_to_add: List[str]
+
+class TailoredResumeRequest(BaseModel):
+    job_id: str
 
 
 # Request models
@@ -1494,7 +1510,95 @@ async def download_resume(user_id: int, current_user: dict = Depends(get_current
 
 
 
+@app.post("/api/users/{user_id}/resume/analyze", response_model=ResumeAnalysisResponse)
+async def analyze_user_resume(
+    user_id: int,
+    request: ResumeAnalysisRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Analyze how well user's resume matches a specific job
+    """
+    if current_user['id'] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        # Get job description
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT title, description FROM jobs WHERE job_id = %s", (request.job_id,))
+        job = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Get user resume data
+        user_data = get_user_resume_data(user_id)
+
+        # Analyze match
+        analysis = analyze_resume_match(user_data, job['description'])
+
+        return analysis
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/{user_id}/resume/tailor")
+async def create_tailored_resume(
+    user_id: int,
+    request: TailoredResumeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generate a tailored resume DOCX file for a specific job
+    Returns the tailored resume as a downloadable file
+    """
+    if current_user['id'] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        # Get job details
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT title, description FROM jobs WHERE job_id = %s", (request.job_id,))
+        job = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Get user resume data
+        user_data = get_user_resume_data(user_id)
+
+        # Generate tailored content using AI
+        tailored_data = tailor_resume(user_data, job['description'], job['title'])
+
+        # Generate the tailored resume DOCX
+        resume_file = generate_tailored_resume(tailored_data, job['title'])
+
+        # Create safe filename
+        safe_job_title = job['title'].replace(' ', '_').replace('/', '-')[:30]
+        filename = f"tailored_resume_{safe_job_title}.docx"
+
+        return StreamingResponse(
+            resume_file,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
