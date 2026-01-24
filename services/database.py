@@ -3,29 +3,28 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import os
 
-# Load environment variables
-load_dotenv()
+import os
+from urllib.parse import urlparse
 
 def get_connection():
-    return psycopg2.connect(
-        dbname=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        host=os.getenv('DB_HOST'),
-        port=os.getenv('DB_PORT')
-    )
-
-def test_connection():
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT COUNT(*) FROM jobs;")
-        result = cursor.fetchone()
-        print(f"Connection successful. Jobs in database: {result['count']}")
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print(f"Connection failed: {e}")
-
-if __name__ == "__main__":
-    test_connection()
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse DATABASE_URL
+        url = urlparse(database_url)
+        return psycopg2.connect(
+            dbname=url.path[1:],
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port
+        )
+    else:
+        # Fallback to individual vars
+        return psycopg2.connect(
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
+        )
