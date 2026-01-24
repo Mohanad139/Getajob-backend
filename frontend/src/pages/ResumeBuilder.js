@@ -135,7 +135,6 @@ const ResumeBuilder = () => {
     try {
       let api;
       let loadFn;
-      let setFn;
 
       switch (modalType) {
         case 'experience':
@@ -154,6 +153,8 @@ const ResumeBuilder = () => {
           api = projectsAPI;
           loadFn = () => projectsAPI.getAll().then(res => setProjects(res.data));
           break;
+        default:
+          return;
       }
 
       if (editingItem) {
@@ -197,6 +198,8 @@ const ResumeBuilder = () => {
           api = projectsAPI;
           loadFn = () => projectsAPI.getAll().then(res => setProjects(res.data));
           break;
+        default:
+          return;
       }
 
       await api.delete(id);
