@@ -10,43 +10,52 @@ load_dotenv()
 
 RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
-def fetch_jobs(query="software engineer", location="", num_pages=1):
-    """Fetch jobs from JSearch API"""
+def fetch_jobs(query="software engineer", location="", max_jobs=100):
+    """Fetch jobs from JSearch API up to max_jobs limit"""
     url = "https://jsearch.p.rapidapi.com/search"
-    
+
     all_jobs = []
-    
-    for page in range(1, num_pages + 1):
+    page = 1
+    max_pages = 15  # Safety limit to prevent infinite loops
+
+    while len(all_jobs) < max_jobs and page <= max_pages:
         querystring = {
             "query": query,
             "page": str(page),
             "num_pages": "1"
         }
-        
+
         if location:
             querystring["location"] = location
-        
+
         headers = {
             "X-RapidAPI-Key": RAPIDAPI_KEY,
             "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
         }
-        
+
         try:
             response = requests.get(url, headers=headers, params=querystring)
             response.raise_for_status()
             data = response.json()
-            
-            if 'data' in data:
+
+            if 'data' in data and len(data['data']) > 0:
                 all_jobs.extend(data['data'])
-                print(f"Fetched page {page}: {len(data['data'])} jobs")
+                print(f"Fetched page {page}: {len(data['data'])} jobs (total: {len(all_jobs)})")
+
+                # Stop if we've reached enough jobs
+                if len(all_jobs) >= max_jobs:
+                    all_jobs = all_jobs[:max_jobs]  # Trim to exact limit
+                    break
             else:
-                print(f"No jobs found on page {page}")
+                print(f"No more jobs found on page {page}")
                 break
-                
+
         except Exception as e:
             print(f"Error fetching page {page}: {e}")
             break
-    
+
+        page += 1
+
     return all_jobs
 
 def save_jobs_to_db(jobs):
@@ -113,7 +122,7 @@ def save_jobs_to_db(jobs):
 
 if __name__ == "__main__":
     print("Fetching jobs from JSearch API...")
-    jobs = fetch_jobs(query="python developer", num_pages=1)
+    jobs = fetch_jobs(query="python developer", max_jobs=100)
     print(f"\nTotal jobs fetched: {len(jobs)}")
     
     if jobs:
