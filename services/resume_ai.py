@@ -8,7 +8,7 @@
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-from database import get_connection
+from .database import get_connection
 from psycopg2.extras import RealDictCursor
 import json
 

@@ -7,7 +7,7 @@ from docx.oxml import OxmlElement
 from datetime import date
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from database import get_connection
+from .database import get_connection
 import io
 
 def format_date(date_obj):

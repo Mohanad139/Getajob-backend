@@ -108,7 +108,7 @@ def evaluate_answer(question, answer, job_title, job_description):
 
 def get_overall_feedback(session_id):
     """Generate overall interview performance summary"""
-    from database import get_connection
+    from .database import get_connection
     from psycopg2.extras import RealDictCursor
     
     conn = get_connection()

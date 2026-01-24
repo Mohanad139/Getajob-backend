@@ -3,7 +3,7 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 import os
-from database import get_connection
+from .database import get_connection
 
 # Load environment variables
 load_dotenv()
