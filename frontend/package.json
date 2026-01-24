@@ -12,6 +12,9 @@
     "react-scripts": "5.0.1",
     "axios": "^1.6.0"
   },
+  "overrides": {
+    "cross-spawn": "^7.0.6"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
