@@ -38,3 +38,18 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS headline VARCHAR(255);
 
 -- Add summary column for "About Me" section
 ALTER TABLE users ADD COLUMN IF NOT EXISTS summary TEXT;
+
+-- ============ CREATE SKIPPED_JOBS TABLE ============
+-- Track jobs that users have skipped so they don't appear in future searches
+CREATE TABLE IF NOT EXISTS skipped_jobs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    company VARCHAR(255) NOT NULL,
+    location VARCHAR(255),
+    skipped_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, title, company, location)
+);
+
+-- Create index for faster queries by user
+CREATE INDEX IF NOT EXISTS idx_skipped_jobs_user_id ON skipped_jobs(user_id);

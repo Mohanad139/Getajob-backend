@@ -5,18 +5,19 @@ import psycopg2
 import uuid
 from services.database import get_connection
 from services.scraper import fetch_jobs
-from models.job import Job, JobSave, JobSearchRequest
-from auth.dependencies import get_current_user
+from models.job import Job, JobSave, JobSkip, JobSearchRequest
+from auth.dependencies import get_current_user, get_optional_user
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
 
 @router.post("/search", response_model=dict)
-async def search_jobs(request: JobSearchRequest):
+async def search_jobs(request: JobSearchRequest, current_user: Optional[dict] = Depends(get_optional_user)):
     """
     Endpoint to search and fetch jobs from JSearch API
     Returns the jobs directly for display (does NOT auto-save)
     Query should include location, e.g. "Software Engineer in Canada"
+    If authenticated, filters out jobs the user has already saved or skipped.
     """
     try:
         # Fetch jobs from API - query should include location
@@ -29,8 +30,36 @@ async def search_jobs(request: JobSearchRequest):
         if not raw_jobs:
             return {"jobs": [], "message": "No jobs found"}
 
+        # Get user's saved and skipped jobs if authenticated
+        excluded_jobs = set()
+        if current_user:
+            conn = get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+            # Get saved jobs (title, company, location)
+            cursor.execute(
+                "SELECT title, company, location FROM jobs WHERE user_id = %s",
+                (current_user['id'],)
+            )
+            for row in cursor.fetchall():
+                key = (row['title'].lower(), row['company'].lower(), (row['location'] or '').lower())
+                excluded_jobs.add(key)
+
+            # Get skipped jobs (title, company, location)
+            cursor.execute(
+                "SELECT title, company, location FROM skipped_jobs WHERE user_id = %s",
+                (current_user['id'],)
+            )
+            for row in cursor.fetchall():
+                key = (row['title'].lower(), row['company'].lower(), (row['location'] or '').lower())
+                excluded_jobs.add(key)
+
+            cursor.close()
+            conn.close()
+
         # Transform jobs to a simpler format for the frontend
         jobs = []
+        filtered_count = 0
         for job in raw_jobs:
             # Format salary as string
             salary_min = job.get('job_min_salary')
@@ -51,9 +80,19 @@ async def search_jobs(request: JobSearchRequest):
             location_parts = [p for p in [city, state, country] if p]
             job_location = ', '.join(location_parts) if location_parts else ''
 
+            title = job.get('job_title', '') or ''
+            company = job.get('employer_name', '') or ''
+
+            # Skip if user has already saved or skipped this job
+            if current_user:
+                job_key = (title.lower(), company.lower(), job_location.lower())
+                if job_key in excluded_jobs:
+                    filtered_count += 1
+                    continue
+
             jobs.append({
-                "title": job.get('job_title', '') or '',
-                "company": job.get('employer_name', '') or '',
+                "title": title,
+                "company": company,
                 "location": job_location,
                 "salary": salary,
                 "description": (job.get('job_description', '') or '')[:500],
@@ -63,7 +102,10 @@ async def search_jobs(request: JobSearchRequest):
             })
 
         # Jobs are NOT auto-saved - user must explicitly save
-        return {"jobs": jobs, "message": f"Found {len(jobs)} jobs"}
+        message = f"Found {len(jobs)} jobs"
+        if filtered_count > 0:
+            message += f" ({filtered_count} already saved/skipped)"
+        return {"jobs": jobs, "message": message}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -136,6 +178,36 @@ async def delete_job(job_id: int, current_user: dict = Depends(get_current_user)
 
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/skip", response_model=dict)
+async def skip_job(job: JobSkip, current_user: dict = Depends(get_current_user)):
+    """
+    Mark a job as skipped so it won't appear in future searches (requires authentication)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO skipped_jobs (user_id, title, company, location)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, title, company, location) DO NOTHING
+        """, (
+            current_user['id'],
+            job.title,
+            job.company,
+            job.location or ''
+        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Job skipped successfully"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

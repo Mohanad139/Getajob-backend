@@ -39,3 +39,9 @@ class JobSave(BaseModel):
     url: Optional[str] = None
     job_type: Optional[str] = None
     posted_date: Optional[str] = None
+
+
+class JobSkip(BaseModel):
+    title: str
+    company: str
+    location: Optional[str] = None
