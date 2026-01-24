@@ -6,7 +6,7 @@ from datetime import datetime
 class JobSearchRequest(BaseModel):
     query: str
     location: Optional[str] = ""
-    num_pages: Optional[int] = 1
+    max_jobs: Optional[int] = 100  # Fetch up to 100 jobs by default
 
 
 class JobSearchResponse(BaseModel):

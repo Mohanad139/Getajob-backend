@@ -23,7 +23,7 @@ async def search_jobs(request: JobSearchRequest):
         raw_jobs = fetch_jobs(
             query=request.query,
             location="",
-            num_pages=request.num_pages
+            max_jobs=request.max_jobs
         )
 
         if not raw_jobs:
