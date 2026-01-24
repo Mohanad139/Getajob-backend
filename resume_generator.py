@@ -13,18 +13,34 @@ import io
 def format_date(date_obj):
     """Format date object to string"""
     if date_obj:
-        return date_obj.strftime("%B %Y")
+        return date_obj.strftime("%Y")
     return "Present"
 
-def add_section_heading(document, text):
-    """Add a section heading with underline like in the template"""
-    para = document.add_paragraph()
-    run = para.add_run(text)
-    run.font.bold = True
-    run.font.size = Pt(11)
-    run.font.name = 'Times New Roman'
+def format_date_range(start_date, end_date, is_current=False):
+    """Format date range like '2023 - 2026' or '2023 - Present'"""
+    start = start_date.strftime("%Y") if start_date else ""
+    if is_current:
+        end = "Present"
+    else:
+        end = end_date.strftime("%Y") if end_date else "Present"
+    return f"{start} - {end}" if start else end
 
-    # Add bottom border (underline for the section)
+def add_section_heading(document, text):
+    """Add a section heading with bottom border line"""
+    para = document.add_paragraph()
+    run = para.add_run(text.upper())
+    run.font.bold = True
+    run.font.size = Pt(12)
+    run.font.name = 'Arial'
+    run.font.color.rgb = RGBColor(0, 0, 0)
+
+    # Add letter spacing
+    rPr = run._element.get_or_add_rPr()
+    spacing = OxmlElement('w:spacing')
+    spacing.set(qn('w:val'), '40')
+    rPr.append(spacing)
+
+    # Add bottom border
     pPr = para._p.get_or_add_pPr()
     pBdr = OxmlElement('w:pBdr')
     bottom = OxmlElement('w:bottom')
@@ -35,54 +51,79 @@ def add_section_heading(document, text):
     pBdr.append(bottom)
     pPr.append(pBdr)
 
-    para.paragraph_format.space_after = Pt(6)
+    para.paragraph_format.space_before = Pt(16)
+    para.paragraph_format.space_after = Pt(8)
     return para
 
-def add_entry_with_date(document, left_text, right_text, bold_left=True):
-    """Add an entry with text on left and date on right"""
+def add_entry_header(document, institution, date_range):
+    """Add entry header like 'Company Name | 2023 - 2026'"""
     para = document.add_paragraph()
 
-    # Add tab stop at right margin for date alignment
-    tab_stops = para.paragraph_format.tab_stops
-    tab_stops.add_tab_stop(Inches(6.5), WD_TAB_ALIGNMENT.RIGHT)
+    inst_run = para.add_run(institution)
+    inst_run.font.name = 'Arial'
+    inst_run.font.size = Pt(10)
+    inst_run.font.color.rgb = RGBColor(100, 100, 100)
 
-    left_run = para.add_run(left_text)
-    left_run.font.name = 'Times New Roman'
-    left_run.font.size = Pt(11)
-    if bold_left:
-        left_run.font.bold = True
+    sep_run = para.add_run(' | ')
+    sep_run.font.name = 'Arial'
+    sep_run.font.size = Pt(10)
+    sep_run.font.color.rgb = RGBColor(100, 100, 100)
 
-    para.add_run('\t')
+    date_run = para.add_run(date_range)
+    date_run.font.name = 'Arial'
+    date_run.font.size = Pt(10)
+    date_run.font.color.rgb = RGBColor(100, 100, 100)
 
-    right_run = para.add_run(right_text)
-    right_run.font.name = 'Times New Roman'
-    right_run.font.size = Pt(11)
-
-    para.paragraph_format.space_after = Pt(0)
+    para.paragraph_format.space_after = Pt(2)
+    para.paragraph_format.space_before = Pt(8)
     return para
 
-def add_subtitle(document, text):
-    """Add a subtitle line (like degree or job title)"""
+def add_entry_title(document, title):
+    """Add entry title in bold (like job title or degree)"""
+    para = document.add_paragraph()
+    run = para.add_run(title)
+    run.font.name = 'Arial'
+    run.font.size = Pt(11)
+    run.font.bold = True
+    run.font.color.rgb = RGBColor(0, 0, 0)
+    para.paragraph_format.space_after = Pt(4)
+    para.paragraph_format.space_before = Pt(0)
+    return para
+
+def add_description_text(document, text):
+    """Add description paragraph"""
     para = document.add_paragraph()
     run = para.add_run(text)
-    run.font.name = 'Times New Roman'
-    run.font.size = Pt(11)
-    para.paragraph_format.space_after = Pt(0)
+    run.font.name = 'Arial'
+    run.font.size = Pt(10)
+    run.font.color.rgb = RGBColor(60, 60, 60)
+    para.paragraph_format.space_after = Pt(8)
+    para.paragraph_format.space_before = Pt(0)
     return para
 
 def add_bullet_point(document, text):
     """Add a bullet point item"""
-    para = document.add_paragraph(style='List Bullet')
-    run = para.add_run(text)
-    run.font.name = 'Times New Roman'
-    run.font.size = Pt(11)
+    para = document.add_paragraph()
+    # Add bullet character
+    bullet_run = para.add_run('• ')
+    bullet_run.font.name = 'Arial'
+    bullet_run.font.size = Pt(10)
+
+    text_run = para.add_run(text)
+    text_run.font.name = 'Arial'
+    text_run.font.size = Pt(10)
+    text_run.font.color.rgb = RGBColor(60, 60, 60)
+
     para.paragraph_format.left_indent = Inches(0.25)
+    para.paragraph_format.first_line_indent = Inches(-0.15)
     para.paragraph_format.space_after = Pt(2)
+    para.paragraph_format.space_before = Pt(0)
     return para
+
 
 def generate_resume(user_id: int) -> io.BytesIO:
     """
-    Generate a DOCX resume for a user
+    Generate a DOCX resume for a user in the new clean design
     Returns BytesIO object containing the document
     """
 
@@ -140,190 +181,206 @@ def generate_resume(user_id: int) -> io.BytesIO:
     # Set margins
     sections = document.sections
     for section in sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.75)
-        section.right_margin = Inches(0.75)
+        section.top_margin = Inches(0.6)
+        section.bottom_margin = Inches(0.6)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
 
     # Set default font
     style = document.styles['Normal']
     font = style.font
-    font.name = 'Times New Roman'
-    font.size = Pt(11)
+    font.name = 'Arial'
+    font.size = Pt(10)
 
     # ==================== HEADER - NAME ====================
     name_para = document.add_paragraph()
     name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_run = name_para.add_run(user['name'])
-    name_run.font.size = Pt(18)
+    name_run = name_para.add_run(user['name'].upper())
+    name_run.font.size = Pt(28)
     name_run.font.bold = True
-    name_run.font.name = 'Times New Roman'
-    name_para.paragraph_format.space_after = Pt(0)
+    name_run.font.name = 'Arial'
+    name_run.font.color.rgb = RGBColor(0, 0, 0)
+    name_para.paragraph_format.space_after = Pt(4)
+    name_para.paragraph_format.space_before = Pt(0)
 
-    # ==================== CONTACT INFO ====================
+    # ==================== PROFESSIONAL TITLE ====================
+    if user.get('headline'):
+        title_para = document.add_paragraph()
+        title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_run = title_para.add_run(user['headline'])
+        title_run.font.size = Pt(14)
+        title_run.font.name = 'Arial'
+        title_run.font.color.rgb = RGBColor(60, 60, 60)
+        title_para.paragraph_format.space_after = Pt(8)
+        title_para.paragraph_format.space_before = Pt(0)
+
+    # ==================== CONTACT INFO ROW ====================
     contact_para = document.add_paragraph()
     contact_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    contact_parts = []
 
-    if user.get('location'):
-        contact_parts.append(user['location'])
+    contact_items = []
+
     if user.get('phone'):
-        contact_parts.append(user['phone'])
+        contact_items.append(('phone', user['phone']))
     if user.get('email'):
-        contact_parts.append(user['email'])
+        contact_items.append(('email', user['email']))
+    if user.get('location'):
+        contact_items.append(('location', user['location']))
 
-    contact_run = contact_para.add_run(' | '.join(contact_parts))
-    contact_run.font.size = Pt(10)
-    contact_run.font.name = 'Times New Roman'
-    contact_para.paragraph_format.space_after = Pt(0)
+    for i, (icon_type, value) in enumerate(contact_items):
+        # Add icon symbol
+        if icon_type == 'phone':
+            icon = '\u260E '  # Phone symbol
+        elif icon_type == 'email':
+            icon = '\u2709 '  # Envelope symbol
+        elif icon_type == 'location':
+            icon = '\u2691 '  # Flag/location symbol
+        else:
+            icon = ''
 
-    # Add LinkedIn/URLs if available
-    urls_parts = []
-    if user.get('linkedin_url'):
-        urls_parts.append(user['linkedin_url'])
-    if user.get('github_url'):
-        urls_parts.append(user['github_url'])
+        icon_run = contact_para.add_run(icon)
+        icon_run.font.name = 'Arial'
+        icon_run.font.size = Pt(10)
+        icon_run.font.color.rgb = RGBColor(80, 80, 80)
 
-    if urls_parts:
-        urls_para = document.add_paragraph()
-        urls_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        urls_run = urls_para.add_run(' | '.join(urls_parts))
-        urls_run.font.size = Pt(10)
-        urls_run.font.name = 'Times New Roman'
-        urls_run.font.color.rgb = RGBColor(0, 0, 255)
-        urls_para.paragraph_format.space_after = Pt(6)
-    else:
-        contact_para.paragraph_format.space_after = Pt(6)
+        value_run = contact_para.add_run(value)
+        value_run.font.name = 'Arial'
+        value_run.font.size = Pt(10)
+        value_run.font.color.rgb = RGBColor(80, 80, 80)
+
+        # Add spacing between items
+        if i < len(contact_items) - 1:
+            spacer = contact_para.add_run('          ')
+            spacer.font.size = Pt(10)
+
+    contact_para.paragraph_format.space_after = Pt(12)
+
+    # ==================== ABOUT ME / SUMMARY ====================
+    if user.get('summary'):
+        add_section_heading(document, 'ABOUT ME')
+        add_description_text(document, user['summary'])
 
     # ==================== EDUCATION ====================
     if education:
         add_section_heading(document, 'EDUCATION')
 
         for edu in education:
-            # School name and location with date on right
-            school_text = f"{edu['school']}"
-            date_text = format_date(edu['end_date']) if edu.get('end_date') else ""
-            add_entry_with_date(document, school_text, date_text, bold_left=True)
+            # Institution | Date Range
+            date_range = format_date_range(edu.get('start_date'), edu.get('end_date'))
+            add_entry_header(document, edu['school'], date_range)
 
-            # Degree and field of study
+            # Degree title in bold
             degree_text = edu['degree']
             if edu.get('field_of_study'):
-                degree_text += f", {edu['field_of_study']}"
-            add_subtitle(document, degree_text)
+                degree_text += f" in {edu['field_of_study']}"
+            add_entry_title(document, degree_text)
 
-            # GPA if available
-            if edu.get('gpa'):
-                gpa_para = document.add_paragraph()
-                run = gpa_para.add_run(f"GPA: {edu['gpa']}")
-                run.font.name = 'Times New Roman'
-                run.font.size = Pt(11)
-                gpa_para.paragraph_format.space_after = Pt(6)
-            else:
-                # Add spacing after education entry
-                document.add_paragraph().paragraph_format.space_after = Pt(0)
-
-    # ==================== SKILLS ====================
-    if skills:
-        add_section_heading(document, 'SKILLS')
-
-        # Group skills by proficiency
-        skills_by_prof = {}
-        for skill in skills:
-            prof = skill.get('proficiency') or 'Other'
-            if prof not in skills_by_prof:
-                skills_by_prof[prof] = []
-            skills_by_prof[prof].append(skill['skill_name'])
-
-        # Display skills grouped by proficiency
-        for proficiency, skill_list in skills_by_prof.items():
-            para = document.add_paragraph()
-            prof_run = para.add_run(f"{proficiency}: ")
-            prof_run.font.bold = True
-            prof_run.font.name = 'Times New Roman'
-            prof_run.font.size = Pt(11)
-
-            skills_run = para.add_run(', '.join(skill_list))
-            skills_run.font.name = 'Times New Roman'
-            skills_run.font.size = Pt(11)
-            para.paragraph_format.space_after = Pt(2)
-
-        document.add_paragraph().paragraph_format.space_after = Pt(0)
+            # Description/achievements if available
+            if edu.get('description'):
+                add_description_text(document, edu['description'])
+            elif edu.get('gpa'):
+                add_description_text(document, f"GPA: {edu['gpa']}")
 
     # ==================== WORK EXPERIENCE ====================
     if work_experiences:
-        add_section_heading(document, 'EXPERIENCE')
+        add_section_heading(document, 'WORK EXPERIENCE')
 
         for work in work_experiences:
-            # Company name with date range on right
-            date_start = format_date(work['start_date'])
-            date_end = format_date(work['end_date']) if not work.get('is_current') else "Present"
-            date_range = f"{date_start} - {date_end}"
+            # Company | Date Range
+            date_range = format_date_range(work.get('start_date'), work.get('end_date'), work.get('is_current'))
+            add_entry_header(document, work['company'], date_range)
 
-            add_entry_with_date(document, f"{work['company']}", date_range, bold_left=True)
+            # Job title in bold
+            add_entry_title(document, work['title'])
 
-            # Job title
-            add_subtitle(document, work['title'])
-
-            # Responsibilities as bullet points
+            # Responsibilities
             if work.get('responsibilities'):
-                # Split responsibilities by newline or period if multiple
                 responsibilities = work['responsibilities']
-                # Try to split by newlines first
                 resp_list = [r.strip() for r in responsibilities.split('\n') if r.strip()]
 
-                # If no newlines, treat as single responsibility
-                if len(resp_list) <= 1:
-                    resp_list = [responsibilities]
-
-                for resp in resp_list:
-                    if resp:
-                        add_bullet_point(document, resp)
-
-            document.add_paragraph().paragraph_format.space_after = Pt(0)
+                if len(resp_list) <= 1 and responsibilities:
+                    # Single paragraph description
+                    add_description_text(document, responsibilities)
+                else:
+                    # Multiple bullet points
+                    for resp in resp_list:
+                        if resp:
+                            add_bullet_point(document, resp)
 
     # ==================== PROJECTS ====================
     if projects:
         add_section_heading(document, 'PROJECTS')
 
         for project in projects:
-            # Project title with date on right
+            # Project title | Date Range
             date_range = ""
             if project.get('start_date'):
-                date_start = format_date(project['start_date'])
-                date_end = format_date(project['end_date']) if project.get('end_date') else "Ongoing"
-                date_range = f"{date_start} - {date_end}"
+                date_range = format_date_range(project.get('start_date'), project.get('end_date'))
+            add_entry_header(document, project['title'], date_range)
 
-            add_entry_with_date(document, project['title'], date_range, bold_left=True)
-
-            # Technologies
+            # Technologies as subtitle if available
             if project.get('technologies'):
                 tech_para = document.add_paragraph()
                 tech_run = tech_para.add_run(f"Technologies: {project['technologies']}")
-                tech_run.font.name = 'Times New Roman'
-                tech_run.font.size = Pt(10)
+                tech_run.font.name = 'Arial'
+                tech_run.font.size = Pt(9)
                 tech_run.font.italic = True
-                tech_para.paragraph_format.space_after = Pt(2)
+                tech_run.font.color.rgb = RGBColor(100, 100, 100)
+                tech_para.paragraph_format.space_after = Pt(4)
 
-            # Description as bullet points
+            # Description
             if project.get('description'):
                 desc_list = [d.strip() for d in project['description'].split('\n') if d.strip()]
-                if len(desc_list) <= 1:
-                    desc_list = [project['description']]
 
-                for desc in desc_list:
-                    if desc:
-                        add_bullet_point(document, desc)
+                if len(desc_list) <= 1 and project['description']:
+                    add_description_text(document, project['description'])
+                else:
+                    for desc in desc_list:
+                        if desc:
+                            add_bullet_point(document, desc)
 
-            # URL
-            if project.get('url'):
-                url_para = document.add_paragraph()
-                url_run = url_para.add_run(f"Link: {project['url']}")
-                url_run.font.name = 'Times New Roman'
-                url_run.font.size = Pt(10)
-                url_run.font.color.rgb = RGBColor(0, 0, 255)
-                url_para.paragraph_format.space_after = Pt(2)
+    # ==================== SKILLS ====================
+    if skills:
+        add_section_heading(document, 'SKILLS')
 
-            document.add_paragraph().paragraph_format.space_after = Pt(0)
+        skill_names = [s['skill_name'] for s in skills]
+
+        # Create a table for multi-column layout (3 columns)
+        num_cols = 3
+        num_skills = len(skill_names)
+        rows_needed = (num_skills + num_cols - 1) // num_cols
+
+        table = document.add_table(rows=rows_needed, cols=num_cols)
+        table.autofit = True
+
+        for i, skill in enumerate(skill_names):
+            row_idx = i // num_cols
+            col_idx = i % num_cols
+
+            cell = table.cell(row_idx, col_idx)
+            cell.text = ''
+            para = cell.paragraphs[0]
+
+            bullet_run = para.add_run('• ')
+            bullet_run.font.name = 'Arial'
+            bullet_run.font.size = Pt(10)
+
+            skill_run = para.add_run(skill)
+            skill_run.font.name = 'Arial'
+            skill_run.font.size = Pt(10)
+            skill_run.font.color.rgb = RGBColor(60, 60, 60)
+
+        # Remove table borders
+        for row in table.rows:
+            for cell in row.cells:
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                tcBorders = OxmlElement('w:tcBorders')
+                for border_name in ['top', 'left', 'bottom', 'right']:
+                    border = OxmlElement(f'w:{border_name}')
+                    border.set(qn('w:val'), 'nil')
+                    tcBorders.append(border)
+                tcPr.append(tcBorders)
 
     # Save to BytesIO
     file_stream = io.BytesIO()
@@ -352,127 +409,136 @@ def generate_tailored_resume(tailored_data: dict, job_title: str) -> io.BytesIO:
     # Set margins
     sections = document.sections
     for section in sections:
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.75)
-        section.right_margin = Inches(0.75)
+        section.top_margin = Inches(0.6)
+        section.bottom_margin = Inches(0.6)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
 
     # Set default font
     style = document.styles['Normal']
     font = style.font
-    font.name = 'Times New Roman'
-    font.size = Pt(11)
+    font.name = 'Arial'
+    font.size = Pt(10)
 
     # ==================== HEADER - NAME ====================
     name_para = document.add_paragraph()
     name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_run = name_para.add_run(user['name'])
-    name_run.font.size = Pt(18)
+    name_run = name_para.add_run(user['name'].upper())
+    name_run.font.size = Pt(28)
     name_run.font.bold = True
-    name_run.font.name = 'Times New Roman'
-    name_para.paragraph_format.space_after = Pt(0)
+    name_run.font.name = 'Arial'
+    name_run.font.color.rgb = RGBColor(0, 0, 0)
+    name_para.paragraph_format.space_after = Pt(4)
+    name_para.paragraph_format.space_before = Pt(0)
 
-    # ==================== CONTACT INFO ====================
+    # ==================== PROFESSIONAL TITLE ====================
+    # Use job title they're applying for as headline
+    title_para = document.add_paragraph()
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_text = job_title if job_title else user.get('headline', '')
+    title_run = title_para.add_run(title_text)
+    title_run.font.size = Pt(14)
+    title_run.font.name = 'Arial'
+    title_run.font.color.rgb = RGBColor(60, 60, 60)
+    title_para.paragraph_format.space_after = Pt(8)
+    title_para.paragraph_format.space_before = Pt(0)
+
+    # ==================== CONTACT INFO ROW ====================
     contact_para = document.add_paragraph()
     contact_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    contact_parts = []
 
-    if user.get('location'):
-        contact_parts.append(user['location'])
+    contact_items = []
+
     if user.get('phone'):
-        contact_parts.append(user['phone'])
+        contact_items.append(('phone', user['phone']))
     if user.get('email'):
-        contact_parts.append(user['email'])
+        contact_items.append(('email', user['email']))
+    if user.get('location'):
+        contact_items.append(('location', user['location']))
 
-    contact_run = contact_para.add_run(' | '.join(contact_parts))
-    contact_run.font.size = Pt(10)
-    contact_run.font.name = 'Times New Roman'
-    contact_para.paragraph_format.space_after = Pt(6)
+    for i, (icon_type, value) in enumerate(contact_items):
+        if icon_type == 'phone':
+            icon = '\u260E '
+        elif icon_type == 'email':
+            icon = '\u2709 '
+        elif icon_type == 'location':
+            icon = '\u2691 '
+        else:
+            icon = ''
 
-    # ==================== PROFESSIONAL SUMMARY ====================
+        icon_run = contact_para.add_run(icon)
+        icon_run.font.name = 'Arial'
+        icon_run.font.size = Pt(10)
+        icon_run.font.color.rgb = RGBColor(80, 80, 80)
+
+        value_run = contact_para.add_run(value)
+        value_run.font.name = 'Arial'
+        value_run.font.size = Pt(10)
+        value_run.font.color.rgb = RGBColor(80, 80, 80)
+
+        if i < len(contact_items) - 1:
+            spacer = contact_para.add_run('          ')
+            spacer.font.size = Pt(10)
+
+    contact_para.paragraph_format.space_after = Pt(12)
+
+    # ==================== ABOUT ME (Tailored Summary) ====================
     if tailored.get('tailored_summary'):
-        add_section_heading(document, 'PROFESSIONAL SUMMARY')
-        summary_para = document.add_paragraph()
-        summary_run = summary_para.add_run(tailored['tailored_summary'])
-        summary_run.font.name = 'Times New Roman'
-        summary_run.font.size = Pt(11)
-        summary_para.paragraph_format.space_after = Pt(6)
+        add_section_heading(document, 'ABOUT ME')
+        add_description_text(document, tailored['tailored_summary'])
 
     # ==================== EDUCATION ====================
     if education:
         add_section_heading(document, 'EDUCATION')
 
         for edu in education:
-            school_text = f"{edu['school']}"
-            date_text = format_date(edu['end_date']) if edu.get('end_date') else ""
-            add_entry_with_date(document, school_text, date_text, bold_left=True)
+            date_range = format_date_range(edu.get('start_date'), edu.get('end_date'))
+            add_entry_header(document, edu['school'], date_range)
 
             degree_text = edu['degree']
             if edu.get('field_of_study'):
-                degree_text += f", {edu['field_of_study']}"
-            add_subtitle(document, degree_text)
+                degree_text += f" in {edu['field_of_study']}"
+            add_entry_title(document, degree_text)
 
-            if edu.get('gpa'):
-                gpa_para = document.add_paragraph()
-                run = gpa_para.add_run(f"GPA: {edu['gpa']}")
-                run.font.name = 'Times New Roman'
-                run.font.size = Pt(11)
-                gpa_para.paragraph_format.space_after = Pt(6)
-            else:
-                document.add_paragraph().paragraph_format.space_after = Pt(0)
-
-    # ==================== SKILLS (Tailored order) ====================
-    tailored_skills = tailored.get('tailored_skills', [])
-    if tailored_skills:
-        add_section_heading(document, 'SKILLS')
-        skills_para = document.add_paragraph()
-        skills_run = skills_para.add_run(', '.join(tailored_skills))
-        skills_run.font.name = 'Times New Roman'
-        skills_run.font.size = Pt(11)
-        skills_para.paragraph_format.space_after = Pt(6)
+            if edu.get('description'):
+                add_description_text(document, edu['description'])
+            elif edu.get('gpa'):
+                add_description_text(document, f"GPA: {edu['gpa']}")
 
     # ==================== WORK EXPERIENCE (Tailored) ====================
     tailored_work = tailored.get('tailored_work_experiences', [])
     if tailored_work or original_work:
-        add_section_heading(document, 'EXPERIENCE')
+        add_section_heading(document, 'WORK EXPERIENCE')
 
-        # Create a map of tailored work by ID
         tailored_work_map = {w.get('id'): w for w in tailored_work}
 
         for work in original_work:
-            # Get tailored version if available
             tailored_version = tailored_work_map.get(work['id'], {})
 
-            date_start = format_date(work['start_date'])
-            date_end = format_date(work['end_date']) if not work.get('is_current') else "Present"
-            date_range = f"{date_start} - {date_end}"
-
+            date_range = format_date_range(work.get('start_date'), work.get('end_date'), work.get('is_current'))
             company = tailored_version.get('company', work['company'])
             title = tailored_version.get('title', work['title'])
 
-            add_entry_with_date(document, company, date_range, bold_left=True)
-            add_subtitle(document, title)
+            add_entry_header(document, company, date_range)
+            add_entry_title(document, title)
 
-            # Use tailored responsibilities if available, otherwise original
             responsibilities = tailored_version.get('responsibilities', work.get('responsibilities', ''))
 
             if responsibilities:
                 resp_list = [r.strip() for r in responsibilities.split('\n') if r.strip()]
+
                 if len(resp_list) <= 1 and responsibilities:
-                    resp_list = [responsibilities]
-
-                for resp in resp_list:
-                    if resp:
-                        add_bullet_point(document, resp)
-
-            document.add_paragraph().paragraph_format.space_after = Pt(0)
+                    add_description_text(document, responsibilities)
+                else:
+                    for resp in resp_list:
+                        if resp:
+                            add_bullet_point(document, resp)
 
     # ==================== PROJECTS (Tailored) ====================
     tailored_projects = tailored.get('tailored_projects', [])
     if tailored_projects or original_projects:
         add_section_heading(document, 'PROJECTS')
 
-        # Create a map of tailored projects by ID
         tailored_proj_map = {p.get('id'): p for p in tailored_projects}
 
         for project in original_projects:
@@ -480,42 +546,72 @@ def generate_tailored_resume(tailored_data: dict, job_title: str) -> io.BytesIO:
 
             date_range = ""
             if project.get('start_date'):
-                date_start = format_date(project['start_date'])
-                date_end = format_date(project['end_date']) if project.get('end_date') else "Ongoing"
-                date_range = f"{date_start} - {date_end}"
+                date_range = format_date_range(project.get('start_date'), project.get('end_date'))
 
             title = tailored_version.get('title', project['title'])
-            add_entry_with_date(document, title, date_range, bold_left=True)
+            add_entry_header(document, title, date_range)
 
             if project.get('technologies'):
                 tech_para = document.add_paragraph()
                 tech_run = tech_para.add_run(f"Technologies: {project['technologies']}")
-                tech_run.font.name = 'Times New Roman'
-                tech_run.font.size = Pt(10)
+                tech_run.font.name = 'Arial'
+                tech_run.font.size = Pt(9)
                 tech_run.font.italic = True
-                tech_para.paragraph_format.space_after = Pt(2)
+                tech_run.font.color.rgb = RGBColor(100, 100, 100)
+                tech_para.paragraph_format.space_after = Pt(4)
 
-            # Use tailored description if available
             description = tailored_version.get('description', project.get('description', ''))
 
             if description:
                 desc_list = [d.strip() for d in description.split('\n') if d.strip()]
+
                 if len(desc_list) <= 1 and description:
-                    desc_list = [description]
+                    add_description_text(document, description)
+                else:
+                    for desc in desc_list:
+                        if desc:
+                            add_bullet_point(document, desc)
 
-                for desc in desc_list:
-                    if desc:
-                        add_bullet_point(document, desc)
+    # ==================== SKILLS (Tailored order) ====================
+    tailored_skills = tailored.get('tailored_skills', [])
+    if tailored_skills:
+        add_section_heading(document, 'SKILLS')
 
-            if project.get('url'):
-                url_para = document.add_paragraph()
-                url_run = url_para.add_run(f"Link: {project['url']}")
-                url_run.font.name = 'Times New Roman'
-                url_run.font.size = Pt(10)
-                url_run.font.color.rgb = RGBColor(0, 0, 255)
-                url_para.paragraph_format.space_after = Pt(2)
+        num_cols = 3
+        num_skills = len(tailored_skills)
+        rows_needed = (num_skills + num_cols - 1) // num_cols
 
-            document.add_paragraph().paragraph_format.space_after = Pt(0)
+        table = document.add_table(rows=rows_needed, cols=num_cols)
+        table.autofit = True
+
+        for i, skill in enumerate(tailored_skills):
+            row_idx = i // num_cols
+            col_idx = i % num_cols
+
+            cell = table.cell(row_idx, col_idx)
+            cell.text = ''
+            para = cell.paragraphs[0]
+
+            bullet_run = para.add_run('• ')
+            bullet_run.font.name = 'Arial'
+            bullet_run.font.size = Pt(10)
+
+            skill_run = para.add_run(skill)
+            skill_run.font.name = 'Arial'
+            skill_run.font.size = Pt(10)
+            skill_run.font.color.rgb = RGBColor(60, 60, 60)
+
+        # Remove table borders
+        for row in table.rows:
+            for cell in row.cells:
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                tcBorders = OxmlElement('w:tcBorders')
+                for border_name in ['top', 'left', 'bottom', 'right']:
+                    border = OxmlElement(f'w:{border_name}')
+                    border.set(qn('w:val'), 'nil')
+                    tcBorders.append(border)
+                tcPr.append(tcBorders)
 
     # Save to BytesIO
     file_stream = io.BytesIO()

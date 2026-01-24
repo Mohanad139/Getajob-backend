@@ -9,12 +9,14 @@ from psycopg2.extras import RealDictCursor
 from database import get_connection
 from scraper import fetch_jobs, save_jobs_to_db
 import os
+import json
 from dotenv import load_dotenv
 import jwt
 import bcrypt
 from fastapi.responses import StreamingResponse
 from resume_generator import generate_resume, generate_tailored_resume
 from resume_ai import get_user_resume_data, analyze_resume_match, tailor_resume
+from interview_ai import generate_interview_questions, evaluate_answer, get_overall_feedback
 
 
 # Load environment variables
@@ -66,7 +68,16 @@ class User(BaseModel):
     name: str
     phone: Optional[str]
     location: Optional[str]
+    headline: Optional[str] = None
+    summary: Optional[str] = None
     created_at: datetime
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    headline: Optional[str] = None
+    summary: Optional[str] = None
 
 # ============ AUTH HELPER FUNCTIONS ============
 
@@ -240,7 +251,7 @@ class CompleteResume(BaseModel):
 
 
 class ResumeAnalysisRequest(BaseModel):
-    job_id: str
+    job_description: str
 
 class ResumeAnalysisResponse(BaseModel):
     match_score: int
@@ -250,7 +261,8 @@ class ResumeAnalysisResponse(BaseModel):
     keywords_to_add: List[str]
 
 class TailoredResumeRequest(BaseModel):
-    job_id: str
+    job_title: str
+    job_description: str
 
 
 # Request models
@@ -280,13 +292,22 @@ class Job(BaseModel):
     scraped_at: datetime
 
 class ApplicationCreate(BaseModel):
-    job_id: str
+    job_title: str
+    company: str
+    location: Optional[str] = None
+    job_url: Optional[str] = None
+    job_description: Optional[str] = None
     status: Optional[str] = "applied"
     deadline: Optional[str] = None  # ISO format: "2026-01-25T10:00:00"
     follow_up_date: Optional[str] = None
     notes: Optional[str] = None
 
 class ApplicationUpdate(BaseModel):
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    job_url: Optional[str] = None
+    job_description: Optional[str] = None
     status: Optional[str] = None
     deadline: Optional[str] = None
     follow_up_date: Optional[str] = None
@@ -294,7 +315,11 @@ class ApplicationUpdate(BaseModel):
 
 class Application(BaseModel):
     id: int
-    job_id: str
+    job_title: str
+    company: str
+    location: Optional[str]
+    job_url: Optional[str]
+    job_description: Optional[str]
     status: str
     applied_date: str
     deadline: Optional[str]
@@ -302,6 +327,33 @@ class Application(BaseModel):
     notes: Optional[str]
     created_at: str
     updated_at: str
+
+
+
+# ============ Interview session ============
+
+class InterviewSessionCreate(BaseModel):
+    job_title: str
+    job_description: str
+    num_questions: Optional[int] = 5
+
+class InterviewQuestionResponse(BaseModel):
+    id: int
+    question_type: str
+    question_text: str
+    user_answer: Optional[str]
+    ai_feedback: Optional[str]
+    score: Optional[int]
+
+class AnswerSubmit(BaseModel):
+    question_id: int
+    answer: str
+
+class InterviewFeedback(BaseModel):
+    score: int
+    strengths: List[str]
+    weaknesses: List[str]
+    suggestions: List[str]
 
 
 
@@ -412,71 +464,223 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "id": current_user['id'],
         "email": current_user['email'],
         "name": current_user['name'],
-        "phone": current_user['phone'],
-        "location": current_user['location']
+        "phone": current_user.get('phone'),
+        "location": current_user.get('location'),
+        "headline": current_user.get('headline'),
+        "summary": current_user.get('summary')
     }
+
+@app.put("/api/auth/profile", response_model=dict)
+async def update_profile(update_data: UserUpdate, current_user: dict = Depends(get_current_user)):
+    """Update current user's profile"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Build dynamic update query
+        update_fields = []
+        params = []
+
+        if update_data.name is not None:
+            update_fields.append("name = %s")
+            params.append(update_data.name)
+        if update_data.phone is not None:
+            update_fields.append("phone = %s")
+            params.append(update_data.phone)
+        if update_data.location is not None:
+            update_fields.append("location = %s")
+            params.append(update_data.location)
+        if update_data.headline is not None:
+            update_fields.append("headline = %s")
+            params.append(update_data.headline)
+        if update_data.summary is not None:
+            update_fields.append("summary = %s")
+            params.append(update_data.summary)
+
+        if not update_fields:
+            return {"message": "No fields to update"}
+
+        params.append(current_user['id'])
+
+        query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = %s RETURNING *"
+        cursor.execute(query, params)
+        updated_user = cursor.fetchone()
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Profile updated successfully",
+            "user": {
+                "id": updated_user['id'],
+                "email": updated_user['email'],
+                "name": updated_user['name'],
+                "phone": updated_user.get('phone'),
+                "location": updated_user.get('location'),
+                "headline": updated_user.get('headline'),
+                "summary": updated_user.get('summary')
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============ JOB ENDPOINTS ============
 
-@app.post("/api/jobs/search", response_model=JobSearchResponse)
+class JobSave(BaseModel):
+    title: str
+    company: str
+    location: Optional[str] = None
+    salary: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+    job_type: Optional[str] = None
+    posted_date: Optional[str] = None
+
+@app.post("/api/jobs/search", response_model=dict)
 async def search_jobs(request: JobSearchRequest):
     """
     Endpoint to search and fetch jobs from JSearch API
+    Returns the jobs directly for display (does NOT auto-save)
+    Query should include location, e.g. "Software Engineer in Canada"
     """
     try:
-        # Fetch jobs from API
-        jobs = fetch_jobs(
+        # Fetch jobs from API - query should include location
+        raw_jobs = fetch_jobs(
             query=request.query,
-            location=request.location,
+            location="",
             num_pages=request.num_pages
         )
-        
-        if not jobs:
-            return JobSearchResponse(
-                message="No jobs found",
-                jobs_fetched=0,
-                jobs_saved=0
-            )
 
-        # Filter jobs by location if specified
-        if request.location:
-            location_lower = request.location.lower()
-            jobs = [
-                job for job in jobs
-                if location_lower in (job.get('job_city', '') or '').lower()
-                or location_lower in (job.get('job_country', '') or '').lower()
-                or location_lower in (job.get('job_state', '') or '').lower()
-            ]
+        if not raw_jobs:
+            return {"jobs": [], "message": "No jobs found"}
 
-        # Save to database
-        saved_count = save_jobs_to_db(jobs)
-        
-        return JobSearchResponse(
-            message="Jobs fetched and saved successfully",
-            jobs_fetched=len(jobs),
-            jobs_saved=saved_count
-        )
-        
+        # Transform jobs to a simpler format for the frontend
+        jobs = []
+        for job in raw_jobs:
+            # Format salary as string
+            salary_min = job.get('job_min_salary')
+            salary_max = job.get('job_max_salary')
+            if salary_min and salary_max:
+                salary = f"${salary_min:,} - ${salary_max:,}"
+            elif salary_min:
+                salary = f"${salary_min:,}"
+            elif salary_max:
+                salary = f"${salary_max:,}"
+            else:
+                salary = None
+
+            # Build location string with city, state, and country
+            city = job.get('job_city', '') or ''
+            state = job.get('job_state', '') or ''
+            country = job.get('job_country', '') or ''
+            location_parts = [p for p in [city, state, country] if p]
+            job_location = ', '.join(location_parts) if location_parts else ''
+
+            jobs.append({
+                "title": job.get('job_title', '') or '',
+                "company": job.get('employer_name', '') or '',
+                "location": job_location,
+                "salary": salary,
+                "description": (job.get('job_description', '') or '')[:500],
+                "url": job.get('job_apply_link', '') or job.get('job_google_link', '') or '',
+                "job_type": job.get('job_employment_type', '') or '',
+                "posted_date": job.get('job_posted_at_datetime_utc', '') or ''
+            })
+
+        # Jobs are NOT auto-saved - user must explicitly save
+        return {"jobs": jobs, "message": f"Found {len(jobs)} jobs"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/jobs", response_model=dict)
+async def save_job(job: JobSave, current_user: dict = Depends(get_current_user)):
+    """
+    Save a job to the database for the current user (requires authentication)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Generate a unique job_id
+        import uuid
+        job_id = str(uuid.uuid4())[:20]
+
+        cursor.execute("""
+            INSERT INTO jobs (job_id, title, company, location, salary, job_type, description, url, posted_date, source, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            job_id,
+            job.title,
+            job.company,
+            job.location,
+            job.salary,
+            job.job_type,
+            job.description,
+            job.url,
+            job.posted_date if job.posted_date else None,
+            'user_saved',
+            current_user['id']
+        ))
+
+        result = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Job saved successfully", "id": result['id']}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: int, current_user: dict = Depends(get_current_user)):
+    """
+    Delete a job from the database (requires authentication, must be owner)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # Only delete if the job belongs to the current user
+        cursor.execute("DELETE FROM jobs WHERE id = %s AND user_id = %s RETURNING id", (job_id, current_user['id']))
+        result = cursor.fetchone()
+
+        if not result:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Job deleted successfully"}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/jobs", response_model=List[Job])
 async def get_jobs(
-    limit: int = 10,
-    offset: int = 0,
     company: Optional[str] = None,
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Endpoint to get jobs from database with filters
+    Endpoint to get current user's saved jobs with optional filters (requires authentication)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Build query with filters
-        query = "SELECT * FROM jobs WHERE 1=1"
-        params = []
+
+        # Build query with filters - only get current user's jobs
+        query = "SELECT * FROM jobs WHERE user_id = %s"
+        params = [current_user['id']]
 
         if company:
             query += " AND company ILIKE %s"
@@ -485,18 +689,18 @@ async def get_jobs(
         if location:
             query += " AND location ILIKE %s"
             params.append(f"{location}%")
-        
-        query += " ORDER BY posted_date DESC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
-        
+
+        # Order by most recently added (id DESC) so newly saved jobs appear first
+        query += " ORDER BY id DESC"
+
         cursor.execute(query, params)
         jobs = cursor.fetchall()
-        
+
         cursor.close()
         conn.close()
-        
+
         return jobs
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -560,30 +764,24 @@ async def get_stats():
 @app.post("/api/applications", response_model=dict)
 async def create_application(application: ApplicationCreate, current_user: dict = Depends(get_current_user)):
     """
-    Mark a job as applied with optional deadline (requires authentication)
+    Create a new job application with job details (requires authentication)
     """
     try:
         conn = get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Check if job exists
-        cursor.execute("SELECT job_id FROM jobs WHERE job_id = %s", (application.job_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        # Check if user already applied to this job
-        cursor.execute("SELECT id FROM applications WHERE job_id = %s AND user_id = %s", (application.job_id, current_user['id']))
-        if cursor.fetchone():
-            raise HTTPException(status_code=400, detail="Already applied to this job")
-
-        # Insert application with user_id
+        # Insert application with job details directly
         cursor.execute("""
-            INSERT INTO applications (job_id, user_id, status, deadline, follow_up_date, notes)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO applications (user_id, job_title, company, location, job_url, job_description, status, deadline, follow_up_date, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """, (
-            application.job_id,
             current_user['id'],
+            application.job_title,
+            application.company,
+            application.location,
+            application.job_url,
+            application.job_description,
             application.status,
             application.deadline,
             application.follow_up_date,
@@ -616,27 +814,20 @@ async def get_applications(
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         query = """
-            SELECT
-                a.*,
-                j.title,
-                j.company,
-                j.location,
-                j.url
-            FROM applications a
-            JOIN jobs j ON a.job_id = j.job_id
-            WHERE a.user_id = %s
+            SELECT * FROM applications
+            WHERE user_id = %s
         """
         params = [current_user['id']]
 
         if status:
-            query += " AND a.status = %s"
+            query += " AND status = %s"
             params.append(status)
 
         if upcoming_deadlines:
-            query += " AND a.deadline IS NOT NULL AND a.deadline > NOW()"
-            query += " ORDER BY a.deadline ASC"
+            query += " AND deadline IS NOT NULL AND deadline > NOW()"
+            query += " ORDER BY deadline ASC"
         else:
-            query += " ORDER BY a.applied_date DESC"
+            query += " ORDER BY applied_date DESC"
 
         cursor.execute(query, params)
         applications = cursor.fetchall()
@@ -659,16 +850,8 @@ async def get_application(application_id: int, current_user: dict = Depends(get_
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         cursor.execute("""
-            SELECT
-                a.*,
-                j.title,
-                j.company,
-                j.location,
-                j.url,
-                j.description
-            FROM applications a
-            JOIN jobs j ON a.job_id = j.job_id
-            WHERE a.id = %s AND a.user_id = %s
+            SELECT * FROM applications
+            WHERE id = %s AND user_id = %s
         """, (application_id, current_user['id']))
 
         application = cursor.fetchone()
@@ -686,6 +869,7 @@ async def get_application(application_id: int, current_user: dict = Depends(get_
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/applications/{application_id}")
 @app.patch("/api/applications/{application_id}")
 async def update_application(application_id: int, update: ApplicationUpdate, current_user: dict = Depends(get_current_user)):
     """
@@ -698,6 +882,26 @@ async def update_application(application_id: int, update: ApplicationUpdate, cur
         # Build dynamic update query
         updates = []
         params = []
+
+        if update.job_title is not None:
+            updates.append("job_title = %s")
+            params.append(update.job_title)
+
+        if update.company is not None:
+            updates.append("company = %s")
+            params.append(update.company)
+
+        if update.location is not None:
+            updates.append("location = %s")
+            params.append(update.location)
+
+        if update.job_url is not None:
+            updates.append("job_url = %s")
+            params.append(update.job_url)
+
+        if update.job_description is not None:
+            updates.append("job_description = %s")
+            params.append(update.job_description)
 
         if update.status is not None:
             updates.append("status = %s")
@@ -805,13 +1009,32 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         """, (current_user['id'],))
         this_week = cursor.fetchone()
 
+        # Get total count
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM applications WHERE user_id = %s
+        """, (current_user['id'],))
+        total = cursor.fetchone()
+
+        # Get interview sessions count
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM interview_sessions WHERE user_id = %s
+        """, (current_user['id'],))
+        interview_sessions = cursor.fetchone()
+
         cursor.close()
         conn.close()
 
+        # Convert status_counts array to object
+        by_status = {}
+        for item in status_counts:
+            by_status[item['status']] = item['count']
+
         return {
-            "status_breakdown": status_counts,
+            "total": total['count'],
+            "by_status": by_status,
             "upcoming_deadlines": upcoming_deadlines['count'],
-            "applications_this_week": this_week['count']
+            "applications_this_week": this_week['count'],
+            "interview_sessions": interview_sessions['count']
         }
 
     except Exception as e:
@@ -1517,28 +1740,17 @@ async def analyze_user_resume(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Analyze how well user's resume matches a specific job
+    Analyze how well user's resume matches a specific job description
     """
     if current_user['id'] != user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
-        # Get job description
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT title, description FROM jobs WHERE job_id = %s", (request.job_id,))
-        job = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
         # Get user resume data
         user_data = get_user_resume_data(user_id)
 
-        # Analyze match
-        analysis = analyze_resume_match(user_data, job['description'])
+        # Analyze match using the provided job description
+        analysis = analyze_resume_match(user_data, request.job_description)
 
         return analysis
 
@@ -1561,28 +1773,17 @@ async def create_tailored_resume(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     try:
-        # Get job details
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT title, description FROM jobs WHERE job_id = %s", (request.job_id,))
-        job = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
         # Get user resume data
         user_data = get_user_resume_data(user_id)
 
         # Generate tailored content using AI
-        tailored_data = tailor_resume(user_data, job['description'], job['title'])
+        tailored_data = tailor_resume(user_data, request.job_description, request.job_title)
 
         # Generate the tailored resume DOCX
-        resume_file = generate_tailored_resume(tailored_data, job['title'])
+        resume_file = generate_tailored_resume(tailored_data, request.job_title)
 
         # Create safe filename
-        safe_job_title = job['title'].replace(' ', '_').replace('/', '-')[:30]
+        safe_job_title = request.job_title.replace(' ', '_').replace('/', '-')[:30]
         filename = f"tailored_resume_{safe_job_title}.docx"
 
         return StreamingResponse(
@@ -1595,6 +1796,279 @@ async def create_tailored_resume(
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+# ============ INTERVIEW ENDPOINTS ============
+
+@app.post("/api/interview/start", response_model=dict)
+async def start_interview_session(
+    request: InterviewSessionCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Start a new interview session with job title and description
+    Generates questions and saves to database
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Create interview session with provided job details
+        cursor.execute("""
+            INSERT INTO interview_sessions (user_id, job_title, job_description)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (current_user['id'], request.job_title, request.job_description))
+
+        session = cursor.fetchone()
+        session_id = session['id']
+
+        # Generate interview questions using AI
+        questions_data = generate_interview_questions(
+            request.job_description,
+            request.job_title,
+            request.num_questions
+        )
+
+        # Save questions to database
+        saved_questions = []
+        for q in questions_data.get('questions', []):
+            cursor.execute("""
+                INSERT INTO interview_questions (session_id, question_type, question_text)
+                VALUES (%s, %s, %s)
+                RETURNING id, question_type, question_text
+            """, (session_id, q['type'], q['text']))
+            saved_q = cursor.fetchone()
+            saved_questions.append({
+                "id": saved_q['id'],
+                "type": saved_q['question_type'],
+                "text": saved_q['question_text'],
+                "user_answer": None,
+                "ai_feedback": None,
+                "score": None
+            })
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {
+            "session_id": session_id,
+            "job_title": request.job_title,
+            "questions": saved_questions
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/interview/{session_id}/questions", response_model=dict)
+async def get_interview_questions(
+    session_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all questions for an interview session
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Verify session belongs to user
+        cursor.execute("""
+            SELECT id FROM interview_sessions
+            WHERE id = %s AND user_id = %s
+        """, (session_id, current_user['id']))
+
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Get questions
+        cursor.execute("""
+            SELECT id, question_type as type, question_text as text, user_answer, ai_feedback, score
+            FROM interview_questions
+            WHERE session_id = %s
+            ORDER BY id
+        """, (session_id,))
+
+        questions = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return {"questions": questions}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/interview/{session_id}/answer", response_model=InterviewFeedback)
+async def submit_interview_answer(
+    session_id: int,
+    request: AnswerSubmit,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Submit an answer to an interview question and get AI feedback
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Verify session belongs to user and get job info
+        cursor.execute("""
+            SELECT id, job_title, job_description
+            FROM interview_sessions
+            WHERE id = %s AND user_id = %s
+        """, (session_id, current_user['id']))
+
+        session = cursor.fetchone()
+        if not session:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Get the question
+        cursor.execute("""
+            SELECT id, question_text FROM interview_questions
+            WHERE id = %s AND session_id = %s
+        """, (request.question_id, session_id))
+
+        question = cursor.fetchone()
+        if not question:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Question not found")
+
+        # Get AI feedback
+        feedback = evaluate_answer(
+            question['question_text'],
+            request.answer,
+            session['job_title'],
+            session['job_description']
+        )
+
+        # Save answer and feedback to database
+        cursor.execute("""
+            UPDATE interview_questions
+            SET user_answer = %s,
+                ai_feedback = %s,
+                score = %s,
+                strengths = %s,
+                weaknesses = %s,
+                suggestions = %s,
+                answered_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (
+            request.answer,
+            json.dumps(feedback),
+            feedback.get('score', 0),
+            feedback.get('strengths', []),
+            feedback.get('weaknesses', []),
+            feedback.get('suggestions', []),
+            request.question_id
+        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return InterviewFeedback(
+            score=feedback.get('score', 0),
+            strengths=feedback.get('strengths', []),
+            weaknesses=feedback.get('weaknesses', []),
+            suggestions=feedback.get('suggestions', [])
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/interview/{session_id}/feedback", response_model=dict)
+async def get_interview_session_feedback(
+    session_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get overall feedback for the entire interview session
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Verify session belongs to user
+        cursor.execute("""
+            SELECT id FROM interview_sessions
+            WHERE id = %s AND user_id = %s
+        """, (session_id, current_user['id']))
+
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        cursor.close()
+        conn.close()
+
+        # Get overall feedback from AI
+        overall_feedback = get_overall_feedback(session_id)
+
+        return overall_feedback
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/interview/sessions", response_model=List[dict])
+async def get_user_interview_sessions(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all interview sessions for the current user
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT
+                s.id,
+                s.job_title,
+                s.created_at,
+                COUNT(q.id) as total_questions,
+                COUNT(q.user_answer) as answered_questions,
+                AVG(q.score) as average_score,
+                CASE WHEN COUNT(q.id) > 0 AND COUNT(q.user_answer) = COUNT(q.id) THEN true ELSE false END as is_completed
+            FROM interview_sessions s
+            LEFT JOIN interview_questions q ON s.id = q.session_id
+            WHERE s.user_id = %s
+            GROUP BY s.id
+            ORDER BY s.created_at DESC
+        """, (current_user['id'],))
+
+        sessions = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        return sessions
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
