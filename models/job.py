@@ -45,3 +45,11 @@ class JobSkip(BaseModel):
     title: str
     company: str
     location: Optional[str] = None
+
+
+class SkippedJob(BaseModel):
+    id: int
+    title: str
+    company: str
+    location: Optional[str]
+    skipped_at: datetime

@@ -5,7 +5,7 @@ import psycopg2
 import uuid
 from services.database import get_connection
 from services.scraper import fetch_jobs
-from models.job import Job, JobSave, JobSkip, JobSearchRequest
+from models.job import Job, JobSave, JobSkip, JobSearchRequest, SkippedJob
 from auth.dependencies import get_current_user, get_optional_user
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
@@ -208,6 +208,62 @@ async def skip_job(job: JobSkip, current_user: dict = Depends(get_current_user))
 
         return {"message": "Job skipped successfully"}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/skipped", response_model=List[SkippedJob])
+async def get_skipped_jobs(current_user: dict = Depends(get_current_user)):
+    """
+    Get all skipped jobs for the current user (requires authentication)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute(
+            "SELECT id, title, company, location, skipped_at FROM skipped_jobs WHERE user_id = %s ORDER BY skipped_at DESC",
+            (current_user['id'],)
+        )
+        skipped_jobs = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        return skipped_jobs
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/skipped/{skipped_id}")
+async def delete_skipped_job(skipped_id: int, current_user: dict = Depends(get_current_user)):
+    """
+    Remove a job from skipped list so it can appear in searches again (requires authentication)
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "DELETE FROM skipped_jobs WHERE id = %s AND user_id = %s RETURNING id",
+            (skipped_id, current_user['id'])
+        )
+        result = cursor.fetchone()
+
+        if not result:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Skipped job not found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Job removed from skipped list"}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
