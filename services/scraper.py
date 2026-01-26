@@ -1,6 +1,6 @@
 import requests
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 from .database import get_connection
@@ -10,19 +10,54 @@ load_dotenv()
 
 RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
-def fetch_jobs(query="software engineer", location="", max_jobs=100):
-    """Fetch jobs from JSearch API up to max_jobs limit"""
+# Simple in-memory cache with TTL
+_job_cache = {}
+CACHE_TTL_HOURS = 2  # Cache results for 2 hours
+
+
+def _get_cache_key(query: str, location: str) -> str:
+    """Generate a cache key from search parameters"""
+    return f"{query.lower().strip()}|{location.lower().strip()}"
+
+
+def _get_cached_jobs(cache_key: str):
+    """Get cached jobs if not expired"""
+    if cache_key in _job_cache:
+        cached_data, cached_time = _job_cache[cache_key]
+        if datetime.now() - cached_time < timedelta(hours=CACHE_TTL_HOURS):
+            print(f"Cache hit for: {cache_key}")
+            return cached_data
+        else:
+            # Cache expired, remove it
+            del _job_cache[cache_key]
+    return None
+
+
+def _set_cache(cache_key: str, jobs: list):
+    """Store jobs in cache with current timestamp"""
+    _job_cache[cache_key] = (jobs, datetime.now())
+
+
+def fetch_jobs(query="software engineer", location="", max_jobs=25):
+    """Fetch jobs from JSearch API up to max_jobs limit (with caching)"""
+
+    # Check cache first
+    cache_key = _get_cache_key(query, location)
+    cached_jobs = _get_cached_jobs(cache_key)
+    if cached_jobs is not None:
+        return cached_jobs[:max_jobs]
+
     url = "https://jsearch.p.rapidapi.com/search"
 
     all_jobs = []
     page = 1
-    max_pages = 15  # Safety limit to prevent infinite loops
+    max_pages = 3  # Safety limit to prevent excessive API calls
 
     while len(all_jobs) < max_jobs and page <= max_pages:
         querystring = {
             "query": query,
             "page": str(page),
-            "num_pages": "1"
+            "num_pages": "3"
         }
 
         if location:
@@ -55,6 +90,10 @@ def fetch_jobs(query="software engineer", location="", max_jobs=100):
             break
 
         page += 1
+
+    # Cache results for future requests
+    if all_jobs:
+        _set_cache(cache_key, all_jobs)
 
     return all_jobs
 
