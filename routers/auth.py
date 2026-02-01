@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from psycopg2.extras import RealDictCursor
 from services.database import get_connection
+from services.rate_limiter import limiter
 from models.auth import UserCreate, UserLogin, UserUpdate
 from auth.utils import hash_password, verify_password, create_access_token
 from auth.dependencies import get_current_user
@@ -9,7 +10,8 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=dict)
-async def register(user: UserCreate):
+@limiter.limit("5/minute")  # 5 registrations per minute per IP
+async def register(request: Request, user: UserCreate):
     """Register a new user"""
     try:
         conn = get_connection()
@@ -60,7 +62,8 @@ async def register(user: UserCreate):
 
 
 @router.post("/login", response_model=dict)
-async def login(credentials: UserLogin):
+@limiter.limit("5/minute")  # 5 login attempts per minute per IP
+async def login(request: Request, credentials: UserLogin):
     """Login and get access token"""
     try:
         conn = get_connection()

@@ -1,9 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from routers import auth, jobs, applications, dashboard, work_experience, education, skills, projects, resume, interview
+from services.rate_limiter import limiter
 
 app = FastAPI(title="Interview AI API")
+
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Enable CORS for your frontend
 app.add_middleware(

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional, List
 from psycopg2.extras import RealDictCursor
 import psycopg2
 import uuid
 from services.database import get_connection
 from services.scraper import fetch_jobs
+from services.rate_limiter import limiter
 from models.job import Job, JobSave, JobSkip, JobSearchRequest, SkippedJob
 from auth.dependencies import get_current_user, get_optional_user
 
@@ -12,7 +13,8 @@ router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
 
 @router.post("/search", response_model=dict)
-async def search_jobs(request: JobSearchRequest, current_user: Optional[dict] = Depends(get_optional_user)):
+@limiter.limit("10/minute")  # 10 searches per minute per user/IP
+async def search_jobs(request: Request, search_request: JobSearchRequest, current_user: Optional[dict] = Depends(get_optional_user)):
     """
     Endpoint to search and fetch jobs from JSearch API
     Returns the jobs directly for display (does NOT auto-save)
@@ -22,9 +24,12 @@ async def search_jobs(request: JobSearchRequest, current_user: Optional[dict] = 
     try:
         # Fetch jobs from API - query should include location
         raw_jobs = fetch_jobs(
-            query=request.query,
+            query=search_request.query,
             location="",
-            max_jobs=request.max_jobs
+            max_jobs=search_request.max_jobs,
+            date_posted=search_request.date_posted,
+            sort_by=search_request.sort_by,
+            refresh=search_request.refresh
         )
 
         if not raw_jobs:

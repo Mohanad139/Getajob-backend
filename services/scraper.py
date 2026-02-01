@@ -1,5 +1,7 @@
 import requests
 import psycopg2
+import redis
+import json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
@@ -9,43 +11,79 @@ from .database import get_connection
 load_dotenv()
 
 RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
-# Simple in-memory cache with TTL
-_job_cache = {}
-CACHE_TTL_HOURS = 2  # Cache results for 2 hours
+# Redis client
+_redis_client = None
+CACHE_TTL_SECONDS = 2 * 60 * 60  # 2 hours in seconds
+CACHE_PREFIX = "job_search:"
 
 
-def _get_cache_key(query: str, location: str) -> str:
+def _get_redis():
+    """Get or create Redis connection"""
+    global _redis_client
+    if _redis_client is None:
+        try:
+            _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+            _redis_client.ping()  # Test connection
+            print("Redis connected successfully")
+        except redis.ConnectionError as e:
+            print(f"Redis connection failed: {e}")
+            return None
+    return _redis_client
+
+
+def _get_cache_key(query: str, location: str, date_posted: str = "week", sort_by: str = "date") -> str:
     """Generate a cache key from search parameters"""
-    return f"{query.lower().strip()}|{location.lower().strip()}"
+    return f"{CACHE_PREFIX}{query.lower().strip()}|{location.lower().strip()}|{date_posted}|{sort_by}"
 
 
 def _get_cached_jobs(cache_key: str):
-    """Get cached jobs if not expired"""
-    if cache_key in _job_cache:
-        cached_data, cached_time = _job_cache[cache_key]
-        if datetime.now() - cached_time < timedelta(hours=CACHE_TTL_HOURS):
+    """Get cached jobs from Redis"""
+    r = _get_redis()
+    if r is None:
+        return None
+    try:
+        cached_data = r.get(cache_key)
+        if cached_data:
             print(f"Cache hit for: {cache_key}")
-            return cached_data
-        else:
-            # Cache expired, remove it
-            del _job_cache[cache_key]
+            return json.loads(cached_data)
+    except Exception as e:
+        print(f"Redis get error: {e}")
     return None
 
 
 def _set_cache(cache_key: str, jobs: list):
-    """Store jobs in cache with current timestamp"""
-    _job_cache[cache_key] = (jobs, datetime.now())
+    """Store jobs in Redis with TTL"""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        r.setex(cache_key, CACHE_TTL_SECONDS, json.dumps(jobs))
+        print(f"Cached {len(jobs)} jobs with key: {cache_key}")
+    except Exception as e:
+        print(f"Redis set error: {e}")
 
 
-def fetch_jobs(query="software engineer", location="", max_jobs=25):
-    """Fetch jobs from JSearch API up to max_jobs limit (with caching)"""
+def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted="week", sort_by="date", refresh=False):
+    """
+    Fetch jobs from JSearch API up to max_jobs limit (with caching)
 
-    # Check cache first
-    cache_key = _get_cache_key(query, location)
-    cached_jobs = _get_cached_jobs(cache_key)
-    if cached_jobs is not None:
-        return cached_jobs[:max_jobs]
+    Args:
+        query: Search query (e.g., "Software Engineer in Canada")
+        location: Location filter (optional, usually included in query)
+        max_jobs: Maximum number of jobs to fetch
+        date_posted: Filter by posting date - "all", "today", "3days", "week", "month"
+        sort_by: Sort results by - "relevance" or "date"
+        refresh: If True, bypass cache and fetch fresh results
+    """
+
+    # Check cache first (unless refresh is requested)
+    cache_key = _get_cache_key(query, location, date_posted, sort_by)
+    if not refresh:
+        cached_jobs = _get_cached_jobs(cache_key)
+        if cached_jobs is not None:
+            return cached_jobs[:max_jobs]
 
     url = "https://jsearch.p.rapidapi.com/search"
 
@@ -57,7 +95,8 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25):
         querystring = {
             "query": query,
             "page": str(page),
-            "num_pages": "3"
+            "num_pages": "3",
+            "date_posted": date_posted,
         }
 
         if location:
