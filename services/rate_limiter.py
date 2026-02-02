@@ -36,13 +36,29 @@ limiter = Limiter(
 )
 
 
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://mogetajob.vercel.app",
+]
+
+
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    """Custom handler for rate limit exceeded errors"""
+    """Custom handler for rate limit exceeded errors with CORS headers"""
+    origin = request.headers.get("origin", "")
+
+    headers = {}
+    if origin in ALLOWED_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+
     return JSONResponse(
         status_code=429,
         content={
             "error": "Rate limit exceeded",
             "detail": str(exc.detail),
             "retry_after": exc.detail
-        }
+        },
+        headers=headers
     )
