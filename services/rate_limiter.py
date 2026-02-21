@@ -5,11 +5,24 @@ from slowapi.middleware import SlowAPIMiddleware
 from fastapi import Request
 from fastapi.responses import JSONResponse
 import os
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
 
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+
+def _check_redis(url: str) -> bool:
+    try:
+        r = redis.from_url(url, socket_connect_timeout=2)
+        r.ping()
+        return True
+    except Exception:
+        return False
+
+
+STORAGE_URI = REDIS_URL if _check_redis(REDIS_URL) else "memory://"
 
 
 def get_identifier(request: Request) -> str:
@@ -31,7 +44,7 @@ def get_identifier(request: Request) -> str:
 # Create limiter - use Redis if available, otherwise fall back to in-memory
 limiter = Limiter(
     key_func=get_identifier,
-    storage_uri=REDIS_URL if REDIS_URL else "memory://",
+    storage_uri=STORAGE_URI,
     strategy="fixed-window"
 )
 
