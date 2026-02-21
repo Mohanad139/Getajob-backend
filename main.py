@@ -14,10 +14,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # Enable CORS for your frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", 
-        "https://mogetajob.vercel.app",  
-    ],
+    allow_origins= 'https://mogetajob.vercel.app',
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

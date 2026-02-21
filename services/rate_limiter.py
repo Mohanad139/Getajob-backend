@@ -28,10 +28,10 @@ def get_identifier(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-# Create limiter with Redis storage
+# Create limiter - use Redis if available, otherwise fall back to in-memory
 limiter = Limiter(
     key_func=get_identifier,
-    storage_uri=REDIS_URL,
+    storage_uri=REDIS_URL if REDIS_URL else "memory://",
     strategy="fixed-window"
 )
 
