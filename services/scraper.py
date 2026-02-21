@@ -88,6 +88,7 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted=
     url = "https://jsearch.p.rapidapi.com/search"
 
     all_jobs = []
+    seen_ids = set()
     page = 1
     max_pages = 3  # Safety limit to prevent excessive API calls
 
@@ -95,7 +96,7 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted=
         querystring = {
             "query": query,
             "page": str(page),
-            "num_pages": "3",
+            "num_pages": "1",
             "date_posted": date_posted,
         }
 
@@ -113,8 +114,12 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted=
             data = response.json()
 
             if 'data' in data and len(data['data']) > 0:
-                all_jobs.extend(data['data'])
-                print(f"Fetched page {page}: {len(data['data'])} jobs (total: {len(all_jobs)})")
+                for job in data['data']:
+                    jid = job.get('job_id')
+                    if jid and jid not in seen_ids:
+                        seen_ids.add(jid)
+                        all_jobs.append(job)
+                print(f"Fetched page {page}: {len(data['data'])} jobs (unique total: {len(all_jobs)})")
 
                 # Stop if we've reached enough jobs
                 if len(all_jobs) >= max_jobs:
