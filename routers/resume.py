@@ -1,13 +1,18 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from psycopg2.extras import RealDictCursor
+from psycopg2 import Binary
+import io
 from services.database import get_connection
 from services.resume_generator import generate_resume, generate_tailored_resume
 from services.resume_ai import get_user_resume_data, analyze_resume_match, tailor_resume
-from models.resume import ResumeAnalysisRequest, ResumeAnalysisResponse, TailoredResumeRequest
+from services.resume_parser import extract_text_from_pdf, parse_resume_with_ai, save_parsed_resume_data
+from models.resume import ResumeAnalysisRequest, ResumeAnalysisResponse, TailoredResumeRequest, ResumeUploadResponse
 from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["Resume"])
+
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
 @router.get("/api/resume", response_model=dict)
@@ -157,5 +162,133 @@ async def create_tailored_resume(
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/resume/upload", response_model=ResumeUploadResponse)
+async def upload_resume(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Upload a PDF resume, store it in the database, and parse it with AI
+    to auto-fill the user's profile (work experience, education, skills, projects)
+    """
+    # Validate file type
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+    # Read file content
+    file_bytes = await file.read()
+
+    # Validate file size
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File size exceeds 5MB limit")
+
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    try:
+        # Store PDF in database (upsert - replace if exists)
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "DELETE FROM user_resumes WHERE user_id = %s",
+            (current_user['id'],)
+        )
+        cursor.execute("""
+            INSERT INTO user_resumes (user_id, filename, file_data, file_size)
+            VALUES (%s, %s, %s, %s)
+        """, (
+            current_user['id'],
+            file.filename,
+            Binary(file_bytes),
+            len(file_bytes)
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Extract text from PDF
+        resume_text = extract_text_from_pdf(file_bytes)
+
+        # Parse with AI
+        parsed_data = parse_resume_with_ai(resume_text)
+
+        # Save parsed data to profile tables
+        counts = save_parsed_resume_data(current_user['id'], parsed_data)
+
+        return ResumeUploadResponse(
+            message="Resume uploaded and parsed successfully",
+            filename=file.filename,
+            file_size=len(file_bytes),
+            parsed_data=parsed_data,
+            counts=counts
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/resume/file")
+async def get_resume_file(current_user: dict = Depends(get_current_user)):
+    """Download the user's uploaded resume PDF"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute(
+            "SELECT filename, file_data FROM user_resumes WHERE user_id = %s",
+            (current_user['id'],)
+        )
+        resume = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not resume:
+            raise HTTPException(status_code=404, detail="No resume file found")
+
+        return StreamingResponse(
+            io.BytesIO(bytes(resume['file_data'])),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={resume['filename']}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/resume/file")
+async def delete_resume_file(current_user: dict = Depends(get_current_user)):
+    """Delete the user's uploaded resume PDF"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "DELETE FROM user_resumes WHERE user_id = %s RETURNING id",
+            (current_user['id'],)
+        )
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="No resume file found")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "Resume file deleted successfully"}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

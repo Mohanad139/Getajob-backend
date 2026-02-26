@@ -135,3 +135,11 @@ class ResumeAnalysisResponse(BaseModel):
 class TailoredResumeRequest(BaseModel):
     job_title: str
     job_description: str
+
+
+class ResumeUploadResponse(BaseModel):
+    message: str
+    filename: str
+    file_size: int
+    parsed_data: dict
+    counts: dict
