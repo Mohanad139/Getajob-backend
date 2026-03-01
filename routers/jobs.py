@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from typing import Optional, List
 from psycopg2.extras import RealDictCursor
 import psycopg2
@@ -6,7 +7,9 @@ import uuid
 from services.database import get_connection
 from services.scraper import fetch_jobs
 from services.rate_limiter import limiter
-from models.job import Job, JobSave, JobSkip, JobSearchRequest, SkippedJob
+from services.resume_ai import get_user_resume_data, tailor_resume
+from services.resume_generator import generate_tailored_resume
+from models.job import Job, JobSave, JobSkip, JobSearchRequest, SkippedJob, EasyApplyRequest
 from auth.dependencies import get_current_user, get_optional_user
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
@@ -269,6 +272,69 @@ async def delete_skipped_job(skipped_id: int, current_user: dict = Depends(get_c
 
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/easy-apply")
+async def easy_apply(request: EasyApplyRequest, current_user: dict = Depends(get_current_user)):
+    """
+    Easy Apply: generates a tailored resume DOCX for the job and creates an application record.
+    Returns the tailored resume as a downloadable DOCX file.
+    """
+    try:
+        # 1. Get user's resume data
+        user_data = get_user_resume_data(current_user['id'])
+
+        # 2. Generate tailored resume content via AI
+        tailored_data = tailor_resume(user_data, request.job_description, request.job_title)
+
+        # 3. Generate the tailored DOCX file
+        resume_file = generate_tailored_resume(tailored_data, request.job_title)
+
+        # 4. Create an application record
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            INSERT INTO applications (user_id, job_title, company, location, job_url, job_description, status, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            current_user['id'],
+            request.job_title,
+            request.company,
+            request.location,
+            request.job_url,
+            request.job_description,
+            'applied',
+            'Applied via Easy Apply with tailored resume'
+        ))
+
+        application = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # 5. Return the tailored resume file with apply URL in headers
+        safe_job_title = request.job_title.replace(' ', '_').replace('/', '-')[:30]
+        filename = f"tailored_resume_{safe_job_title}.docx"
+
+        headers = {
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Application-Id": str(application['id']),
+        }
+        if request.job_url:
+            headers["X-Apply-Url"] = request.job_url
+
+        return StreamingResponse(
+            resume_file,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers=headers
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -56,3 +56,13 @@ class SkippedJob(BaseModel):
     company: str
     location: Optional[str]
     skipped_at: datetime
+
+
+class EasyApplyRequest(BaseModel):
+    job_title: str
+    company: str
+    job_description: str
+    location: Optional[str] = None
+    job_url: Optional[str] = None
+    salary: Optional[str] = None
+    job_type: Optional[str] = None

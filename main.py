@@ -18,6 +18,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Apply-Url", "X-Application-Id", "Content-Disposition"],
 )
 
 # Include all routers
