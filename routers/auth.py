@@ -117,7 +117,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "phone": current_user.get('phone'),
         "location": current_user.get('location'),
         "headline": current_user.get('headline'),
-        "summary": current_user.get('summary')
+        "summary": current_user.get('summary'),
+        "github": current_user.get('github'),
+        "linkedin": current_user.get('linkedin')
     }
 
 
@@ -147,6 +149,12 @@ async def update_profile(update_data: UserUpdate, current_user: dict = Depends(g
         if update_data.summary is not None:
             update_fields.append("summary = %s")
             params.append(update_data.summary)
+        if update_data.github is not None:
+            update_fields.append("github = %s")
+            params.append(update_data.github)
+        if update_data.linkedin is not None:
+            update_fields.append("linkedin = %s")
+            params.append(update_data.linkedin)
 
         if not update_fields:
             return {"message": "No fields to update"}
@@ -170,7 +178,9 @@ async def update_profile(update_data: UserUpdate, current_user: dict = Depends(g
                 "phone": updated_user.get('phone'),
                 "location": updated_user.get('location'),
                 "headline": updated_user.get('headline'),
-                "summary": updated_user.get('summary')
+                "summary": updated_user.get('summary'),
+                "github": updated_user.get('github'),
+                "linkedin": updated_user.get('linkedin')
             }
         }
 

@@ -34,6 +34,8 @@ class User(BaseModel):
     location: Optional[str]
     headline: Optional[str] = None
     summary: Optional[str] = None
+    github: Optional[str] = None
+    linkedin: Optional[str] = None
     created_at: datetime
 
 
@@ -43,3 +45,5 @@ class UserUpdate(BaseModel):
     location: Optional[str] = None
     headline: Optional[str] = None
     summary: Optional[str] = None
+    github: Optional[str] = None
+    linkedin: Optional[str] = None

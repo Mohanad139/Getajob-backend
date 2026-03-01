@@ -39,6 +39,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS headline VARCHAR(255);
 -- Add summary column for "About Me" section
 ALTER TABLE users ADD COLUMN IF NOT EXISTS summary TEXT;
 
+-- Add GitHub and LinkedIn profile URLs
+ALTER TABLE users ADD COLUMN IF NOT EXISTS github VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin VARCHAR(255);
+
 -- ============ CREATE SKIPPED_JOBS TABLE ============
 -- Track jobs that users have skipped so they don't appear in future searches
 CREATE TABLE IF NOT EXISTS skipped_jobs (
