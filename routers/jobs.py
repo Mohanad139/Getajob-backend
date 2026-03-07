@@ -25,10 +25,19 @@ async def search_jobs(request: Request, search_request: JobSearchRequest, curren
     If authenticated, filters out jobs the user has already saved or skipped.
     """
     try:
-        # Fetch jobs from API - query should include location
+        # Parse location from query if user typed e.g. "Software engineer in ON,Canada"
+        query = search_request.query
+        location = search_request.location or ""
+        if not location and " in " in query.lower():
+            # Split on last occurrence of " in " to extract location
+            idx = query.lower().rfind(" in ")
+            location = query[idx + 4:].strip()
+            query = query[:idx].strip()
+
+        # Fetch jobs from scrapers
         raw_jobs = fetch_jobs(
-            query=search_request.query,
-            location="",
+            query=query,
+            location=location,
             max_jobs=search_request.max_jobs,
             date_posted=search_request.date_posted,
             sort_by=search_request.sort_by,
