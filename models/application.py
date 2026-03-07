@@ -1,5 +1,17 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, field_validator
+from typing import Optional, List
+from datetime import datetime
+
+VALID_STATUSES = [
+    "saved",
+    "applied",
+    "screening",
+    "interviewing",
+    "offer",
+    "accepted",
+    "rejected",
+    "withdrawn",
+]
 
 
 class ApplicationCreate(BaseModel):
@@ -13,6 +25,13 @@ class ApplicationCreate(BaseModel):
     follow_up_date: Optional[str] = None
     notes: Optional[str] = None
 
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v and v not in VALID_STATUSES:
+            raise ValueError(f"Invalid status '{v}'. Must be one of: {', '.join(VALID_STATUSES)}")
+        return v
+
 
 class ApplicationUpdate(BaseModel):
     job_title: Optional[str] = None
@@ -24,6 +43,21 @@ class ApplicationUpdate(BaseModel):
     deadline: Optional[str] = None
     follow_up_date: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v and v not in VALID_STATUSES:
+            raise ValueError(f"Invalid status '{v}'. Must be one of: {', '.join(VALID_STATUSES)}")
+        return v
+
+
+class StatusHistoryEntry(BaseModel):
+    id: int
+    from_status: Optional[str]
+    to_status: str
+    notes: Optional[str]
+    changed_at: datetime
 
 
 class Application(BaseModel):

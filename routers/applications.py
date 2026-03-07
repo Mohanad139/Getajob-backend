@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
 from psycopg2.extras import RealDictCursor
 from services.database import get_connection
-from models.application import ApplicationCreate, ApplicationUpdate
+from models.application import ApplicationCreate, ApplicationUpdate, StatusHistoryEntry, VALID_STATUSES
 from auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/applications", tags=["Applications"])
@@ -36,6 +36,13 @@ async def create_application(application: ApplicationCreate, current_user: dict 
         ))
 
         result = cursor.fetchone()
+
+        # Log initial status to history
+        cursor.execute("""
+            INSERT INTO application_status_history (application_id, from_status, to_status, notes)
+            VALUES (%s, NULL, %s, %s)
+        """, (result['id'], application.status, application.notes))
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -175,6 +182,18 @@ async def update_application(application_id: int, update: ApplicationUpdate, cur
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.extend([application_id, current_user['id']])
 
+        # If status is changing, get the old status first
+        old_status = None
+        if update.status is not None:
+            cursor.execute(
+                "SELECT status FROM applications WHERE id = %s AND user_id = %s",
+                (application_id, current_user['id'])
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Application not found")
+            old_status = row['status']
+
         query = f"UPDATE applications SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING id"
 
         cursor.execute(query, params)
@@ -183,11 +202,93 @@ async def update_application(application_id: int, update: ApplicationUpdate, cur
         if not result:
             raise HTTPException(status_code=404, detail="Application not found")
 
+        # Log status change to history
+        if update.status is not None and update.status != old_status:
+            cursor.execute("""
+                INSERT INTO application_status_history (application_id, from_status, to_status, notes)
+                VALUES (%s, %s, %s, %s)
+            """, (application_id, old_status, update.status, update.notes))
+
         conn.commit()
         cursor.close()
         conn.close()
 
         return {"message": "Application updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/statuses", response_model=List[str])
+async def get_valid_statuses():
+    """Return the list of valid application statuses in pipeline order"""
+    return VALID_STATUSES
+
+
+@router.get("/stats", response_model=dict)
+async def get_application_stats(current_user: dict = Depends(get_current_user)):
+    """Get a summary of applications grouped by status"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        cursor.execute("""
+            SELECT status, COUNT(*) as count
+            FROM applications
+            WHERE user_id = %s
+            GROUP BY status
+        """, (current_user['id'],))
+        rows = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT COUNT(*) as total FROM applications WHERE user_id = %s
+        """, (current_user['id'],))
+        total = cursor.fetchone()['total']
+
+        cursor.close()
+        conn.close()
+
+        stats = {s: 0 for s in VALID_STATUSES}
+        for row in rows:
+            stats[row['status']] = row['count']
+
+        return {"total": total, "by_status": stats}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{application_id}/history", response_model=List[StatusHistoryEntry])
+async def get_status_history(application_id: int, current_user: dict = Depends(get_current_user)):
+    """Get the full status change history for an application"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Verify ownership
+        cursor.execute(
+            "SELECT id FROM applications WHERE id = %s AND user_id = %s",
+            (application_id, current_user['id'])
+        )
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        cursor.execute("""
+            SELECT id, from_status, to_status, notes, changed_at
+            FROM application_status_history
+            WHERE application_id = %s
+            ORDER BY changed_at ASC
+        """, (application_id,))
+        history = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        return history
 
     except HTTPException:
         raise
