@@ -5,7 +5,7 @@ from psycopg2.extras import RealDictCursor
 import psycopg2
 import uuid
 from services.database import get_connection
-from services.scraper import fetch_jobs
+from services.scraper import fetch_jobs, find_hiring_companies
 from services.rate_limiter import limiter
 from services.resume_ai import get_user_resume_data, tailor_resume
 from services.resume_generator import generate_tailored_resume
@@ -106,14 +106,29 @@ async def search_jobs(request: Request, search_request: JobSearchRequest, curren
                 "description": (job.get('job_description', '') or '')[:500],
                 "url": job.get('job_apply_link', '') or job.get('job_google_link', '') or '',
                 "job_type": job.get('job_employment_type', '') or '',
-                "posted_date": job.get('job_posted_at_datetime_utc', '') or ''
+                "posted_date": job.get('job_posted_at_datetime_utc', '') or '',
+                "source": job.get('site', '') or 'scraped'
             })
+
+        # Find companies hiring for this role
+        companies = []
+        try:
+            companies = find_hiring_companies(
+                query=search_request.query,
+                location=search_request.location or "",
+                max_companies=10,
+                refresh=search_request.refresh
+            )
+        except Exception as e:
+            print(f"Company search failed (non-critical): {e}")
 
         # Jobs are NOT auto-saved - user must explicitly save
         message = f"Found {len(jobs)} jobs"
         if filtered_count > 0:
             message += f" ({filtered_count} already saved/skipped)"
-        return {"jobs": jobs, "message": message}
+        if companies:
+            message += f" and {len(companies)} hiring companies"
+        return {"jobs": jobs, "companies": companies, "message": message}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -145,7 +160,7 @@ async def save_job(job: JobSave, current_user: dict = Depends(get_current_user))
             job.description,
             job.url,
             job.posted_date if job.posted_date else None,
-            'user_saved',
+            job.source or 'scraped',
             current_user['id']
         ))
 

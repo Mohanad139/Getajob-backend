@@ -1,22 +1,43 @@
-import requests
-import psycopg2
 import redis
 import json
+import hashlib
+import httpx
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 import os
-from .database import get_connection
+import re
+import random
 
 # Load environment variables
 load_dotenv()
 
-RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
 # Redis client
 _redis_client = None
-CACHE_TTL_SECONDS = 2 * 60 * 60  # 2 hours in seconds
+CACHE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
 CACHE_PREFIX = "job_search:"
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
+
+
+def _get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
 
 
 def _get_redis():
@@ -25,7 +46,7 @@ def _get_redis():
     if _redis_client is None:
         try:
             _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-            _redis_client.ping()  # Test connection
+            _redis_client.ping()
             print("Redis connected successfully")
         except redis.ConnectionError as e:
             print(f"Redis connection failed: {e}")
@@ -33,13 +54,11 @@ def _get_redis():
     return _redis_client
 
 
-def _get_cache_key(query: str, location: str, date_posted: str = "week", sort_by: str = "date") -> str:
-    """Generate a cache key from search parameters"""
+def _get_cache_key(query, location, date_posted="week", sort_by="date"):
     return f"{CACHE_PREFIX}{query.lower().strip()}|{location.lower().strip()}|{date_posted}|{sort_by}"
 
 
-def _get_cached_jobs(cache_key: str):
-    """Get cached jobs from Redis"""
+def _get_cached_jobs(cache_key):
     r = _get_redis()
     if r is None:
         return None
@@ -53,8 +72,7 @@ def _get_cached_jobs(cache_key: str):
     return None
 
 
-def _set_cache(cache_key: str, jobs: list):
-    """Store jobs in Redis with TTL"""
+def _set_cache(cache_key, jobs):
     r = _get_redis()
     if r is None:
         return
@@ -65,152 +83,523 @@ def _set_cache(cache_key: str, jobs: list):
         print(f"Redis set error: {e}")
 
 
+# Map date_posted to Indeed's fromage parameter (days)
+DATE_POSTED_TO_DAYS = {
+    "today": 1,
+    "3days": 3,
+    "week": 7,
+    "month": 30,
+    "all": None,
+}
+
+
+def _make_job_id(title, company, url):
+    """Generate a stable unique job ID"""
+    source = f"{title}|{company}|{url}"
+    return hashlib.md5(source.encode()).hexdigest()[:20]
+
+
+def _parse_indeed_salary(salary_text):
+    """Parse salary text like '$80,000 - $120,000 a year' into min/max"""
+    if not salary_text:
+        return None, None
+    numbers = re.findall(r'[\d,]+\.?\d*', salary_text.replace(',', ''))
+    if len(numbers) >= 2:
+        try:
+            return float(numbers[0]), float(numbers[1])
+        except ValueError:
+            pass
+    elif len(numbers) == 1:
+        try:
+            return float(numbers[0]), None
+        except ValueError:
+            pass
+    return None, None
+
+
+def _scrape_indeed(query, location, max_jobs=25, days=7, sort_by="date"):
+    """Scrape job listings from Indeed"""
+    jobs = []
+    seen = set()
+    start = 0
+
+    sort_param = "date" if sort_by == "date" else ""
+
+    while len(jobs) < max_jobs and start < max_jobs + 30:
+        params = {
+            "q": query,
+            "l": location,
+            "start": start,
+            "sort": sort_param,
+        }
+        if days is not None:
+            params["fromage"] = days
+
+        try:
+            with httpx.Client(headers=_get_headers(), follow_redirects=True, timeout=15.0) as client:
+                resp = client.get("https://www.indeed.com/jobs", params=params)
+
+            if resp.status_code != 200:
+                print(f"Indeed returned status {resp.status_code}")
+                break
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # Indeed uses various card selectors
+            cards = soup.select("div.job_seen_beacon") or soup.select("div.jobsearch-ResultsList > div") or soup.select("td.resultContent")
+
+            if not cards:
+                # Try the mosaic format
+                cards = soup.select("div[data-jk]")
+
+            if not cards:
+                print(f"No Indeed job cards found on page start={start}")
+                break
+
+            found_new = False
+            for card in cards:
+                try:
+                    # Title
+                    title_el = card.select_one("h2.jobTitle a, h2.jobTitle span, a.jcs-JobTitle")
+                    title = title_el.get_text(strip=True) if title_el else ""
+                    if not title:
+                        continue
+
+                    # Job URL
+                    link_el = card.select_one("a.jcs-JobTitle, h2.jobTitle a, a[data-jk]")
+                    job_key = ""
+                    if link_el:
+                        href = link_el.get("href", "")
+                        if "jk=" in href:
+                            job_key = href.split("jk=")[-1].split("&")[0]
+                        elif link_el.get("data-jk"):
+                            job_key = link_el["data-jk"]
+                    if not job_key:
+                        jk_el = card.find(attrs={"data-jk": True})
+                        if jk_el:
+                            job_key = jk_el["data-jk"]
+
+                    job_url = f"https://www.indeed.com/viewjob?jk={job_key}" if job_key else ""
+
+                    # Company
+                    company_el = card.select_one("span[data-testid='company-name'], span.companyName, span.company")
+                    company = company_el.get_text(strip=True) if company_el else ""
+
+                    # Location
+                    loc_el = card.select_one("div[data-testid='text-location'], div.companyLocation, span.companyLocation")
+                    loc = loc_el.get_text(strip=True) if loc_el else ""
+
+                    # Salary
+                    salary_el = card.select_one("div.salary-snippet-container, div.metadata.salary-snippet-container, span.salary-snippet, div[data-testid='attribute_snippet_testid']")
+                    salary_text = salary_el.get_text(strip=True) if salary_el else ""
+                    min_sal, max_sal = _parse_indeed_salary(salary_text)
+
+                    # Snippet / description
+                    snippet_el = card.select_one("div.job-snippet, div[class*='job-snippet'], table.jobCardShelfContainer")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    # Job type
+                    type_el = card.select_one("div.metadata div.attribute_snippet")
+                    job_type = type_el.get_text(strip=True) if type_el else ""
+
+                    # Deduplicate
+                    dedup_key = (title.lower(), company.lower())
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    found_new = True
+
+                    # Parse location parts
+                    loc_parts = [p.strip() for p in loc.split(",")]
+                    city = loc_parts[0] if len(loc_parts) > 0 else ""
+                    state = loc_parts[1] if len(loc_parts) > 1 else ""
+                    country = loc_parts[2] if len(loc_parts) > 2 else "US"
+
+                    jobs.append({
+                        "job_id": _make_job_id(title, company, job_url),
+                        "job_title": title,
+                        "employer_name": company,
+                        "job_city": city,
+                        "job_state": state,
+                        "job_country": country,
+                        "job_description": snippet,
+                        "job_min_salary": min_sal,
+                        "job_max_salary": max_sal,
+                        "job_employment_type": job_type,
+                        "job_apply_link": job_url,
+                        "job_google_link": "",
+                        "job_posted_at_datetime_utc": "",
+                        "site": "indeed",
+                    })
+
+                except Exception as e:
+                    print(f"Error parsing Indeed card: {e}")
+                    continue
+
+            if not found_new:
+                break
+
+        except httpx.TimeoutException:
+            print(f"Indeed request timed out at start={start}")
+            break
+        except Exception as e:
+            print(f"Error scraping Indeed page: {e}")
+            break
+
+        start += 10
+
+    return jobs
+
+
+def _scrape_linkedin(query, location, max_jobs=25, days=7, sort_by="date"):
+    """Scrape job listings from LinkedIn public job search (no login required)"""
+    jobs = []
+    seen = set()
+    start = 0
+
+    # LinkedIn time filter: r86400=24h, r604800=week, r2592000=month
+    time_filter = ""
+    if days is not None:
+        if days <= 1:
+            time_filter = "r86400"
+        elif days <= 7:
+            time_filter = "r604800"
+        elif days <= 30:
+            time_filter = "r2592000"
+
+    sort_param = "DD" if sort_by == "date" else "R"
+
+    while len(jobs) < max_jobs and start < max_jobs + 50:
+        params = {
+            "keywords": query,
+            "location": location,
+            "start": start,
+            "sortBy": sort_param,
+            "position": 1,
+            "pageNum": 0,
+        }
+        if time_filter:
+            params["f_TPR"] = time_filter
+
+        try:
+            with httpx.Client(headers=_get_headers(), follow_redirects=True, timeout=15.0) as client:
+                resp = client.get("https://www.linkedin.com/jobs/search/", params=params)
+
+            if resp.status_code != 200:
+                print(f"LinkedIn returned status {resp.status_code}")
+                break
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            cards = soup.select("div.base-card, div.base-search-card, li.result-card")
+
+            if not cards:
+                print(f"No LinkedIn job cards found at start={start}")
+                break
+
+            found_new = False
+            for card in cards:
+                try:
+                    # Title
+                    title_el = card.select_one("h3.base-search-card__title, h3.base-card__title, h4.base-search-card__title")
+                    title = title_el.get_text(strip=True) if title_el else ""
+                    if not title:
+                        continue
+
+                    # URL
+                    link_el = card.select_one("a.base-card__full-link, a.base-search-card__full-link")
+                    job_url = link_el.get("href", "").split("?")[0] if link_el else ""
+
+                    # Company
+                    company_el = card.select_one("h4.base-search-card__subtitle a, a.hidden-nested-link")
+                    company = company_el.get_text(strip=True) if company_el else ""
+
+                    # Location
+                    loc_el = card.select_one("span.job-search-card__location")
+                    loc = loc_el.get_text(strip=True) if loc_el else ""
+
+                    # Date
+                    date_el = card.select_one("time.job-search-card__listdate, time.job-search-card__listdate--new")
+                    posted_date = date_el.get("datetime", "") if date_el else ""
+
+                    # Deduplicate
+                    dedup_key = (title.lower(), company.lower())
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    found_new = True
+
+                    loc_parts = [p.strip() for p in loc.split(",")]
+                    city = loc_parts[0] if len(loc_parts) > 0 else ""
+                    state = loc_parts[1] if len(loc_parts) > 1 else ""
+                    country = loc_parts[2] if len(loc_parts) > 2 else ""
+
+                    jobs.append({
+                        "job_id": _make_job_id(title, company, job_url),
+                        "job_title": title,
+                        "employer_name": company,
+                        "job_city": city,
+                        "job_state": state,
+                        "job_country": country,
+                        "job_description": "",
+                        "job_min_salary": None,
+                        "job_max_salary": None,
+                        "job_employment_type": "",
+                        "job_apply_link": job_url,
+                        "job_google_link": "",
+                        "job_posted_at_datetime_utc": posted_date,
+                        "site": "linkedin",
+                    })
+
+                except Exception as e:
+                    print(f"Error parsing LinkedIn card: {e}")
+                    continue
+
+            if not found_new:
+                break
+
+        except httpx.TimeoutException:
+            print(f"LinkedIn request timed out at start={start}")
+            break
+        except Exception as e:
+            print(f"Error scraping LinkedIn page: {e}")
+            break
+
+        start += 25
+
+    return jobs
+
+
 def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted="week", sort_by="date", refresh=False):
     """
-    Fetch jobs from JSearch API up to max_jobs limit (with caching)
+    Fetch jobs by scraping real job boards (Indeed + LinkedIn).
 
     Args:
         query: Search query (e.g., "Software Engineer in Canada")
-        location: Location filter (optional, usually included in query)
+        location: Location filter
         max_jobs: Maximum number of jobs to fetch
         date_posted: Filter by posting date - "all", "today", "3days", "week", "month"
         sort_by: Sort results by - "relevance" or "date"
         refresh: If True, bypass cache and fetch fresh results
     """
 
-    # Check cache first (unless refresh is requested)
+    # Check cache first
     cache_key = _get_cache_key(query, location, date_posted, sort_by)
     if not refresh:
         cached_jobs = _get_cached_jobs(cache_key)
         if cached_jobs is not None:
             return cached_jobs[:max_jobs]
 
-    url = "https://jsearch.p.rapidapi.com/search"
+    days = DATE_POSTED_TO_DAYS.get(date_posted)
+
+    # Split target between sources
+    per_source = max(max_jobs // 2, 10)
+
+    print(f"Scraping jobs for: '{query}' location='{location}' max={max_jobs} days={days}")
 
     all_jobs = []
-    seen_ids = set()
-    page = 1
-    max_pages = 3  # Safety limit to prevent excessive API calls
 
-    while len(all_jobs) < max_jobs and page <= max_pages:
-        querystring = {
-            "query": query,
-            "page": str(page),
-            "num_pages": "1",
-            "date_posted": date_posted,
-        }
+    # Scrape from both sources
+    try:
+        indeed_jobs = _scrape_indeed(query, location, max_jobs=per_source, days=days, sort_by=sort_by)
+        print(f"Indeed: scraped {len(indeed_jobs)} jobs")
+        all_jobs.extend(indeed_jobs)
+    except Exception as e:
+        print(f"Indeed scraping failed: {e}")
 
-        if location:
-            querystring["location"] = location
+    try:
+        linkedin_jobs = _scrape_linkedin(query, location, max_jobs=per_source, days=days, sort_by=sort_by)
+        print(f"LinkedIn: scraped {len(linkedin_jobs)} jobs")
+        all_jobs.extend(linkedin_jobs)
+    except Exception as e:
+        print(f"LinkedIn scraping failed: {e}")
 
-        headers = {
-            "X-RapidAPI-Key": RAPIDAPI_KEY,
-            "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
-        }
+    # Deduplicate across sources by (title, company)
+    seen = set()
+    unique_jobs = []
+    for job in all_jobs:
+        key = (job["job_title"].lower(), job["employer_name"].lower())
+        if key not in seen:
+            seen.add(key)
+            unique_jobs.append(job)
 
-        try:
-            response = requests.get(url, headers=headers, params=querystring)
-            response.raise_for_status()
-            data = response.json()
+    all_jobs = unique_jobs[:max_jobs]
 
-            if 'data' in data and len(data['data']) > 0:
-                for job in data['data']:
-                    jid = job.get('job_id')
-                    if jid and jid not in seen_ids:
-                        seen_ids.add(jid)
-                        all_jobs.append(job)
-                print(f"Fetched page {page}: {len(data['data'])} jobs (unique total: {len(all_jobs)})")
+    print(f"Total unique jobs: {len(all_jobs)}")
 
-                # Stop if we've reached enough jobs
-                if len(all_jobs) >= max_jobs:
-                    all_jobs = all_jobs[:max_jobs]  # Trim to exact limit
-                    break
-            else:
-                print(f"No more jobs found on page {page}")
-                break
-
-        except Exception as e:
-            print(f"Error fetching page {page}: {e}")
-            break
-
-        page += 1
-
-    # Cache results for future requests
+    # Cache results
     if all_jobs:
         _set_cache(cache_key, all_jobs)
 
     return all_jobs
 
-def save_jobs_to_db(jobs):
-    """Save jobs to PostgreSQL database"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    saved_count = 0
-    skipped_count = 0
-    
-    for job in jobs:
-        try:
-            # Extract job data
-            job_id = job.get('job_id', '')
-            title = job.get('job_title', '')
-            company = job.get('employer_name', '')
-            location = job.get('job_city', '') or job.get('job_country', '')
-            
-            # Handle salary
-            salary_min = job.get('job_min_salary')
-            salary_max = job.get('job_max_salary')
-            salary = None
-            if salary_min and salary_max:
-                salary = f"{salary_min}-{salary_max}"
-            elif salary_min:
-                salary = str(salary_min)
-            
-            job_type = job.get('job_employment_type', '')
-            description = job.get('job_description', '')
-            url = job.get('job_apply_link', '')
-            
-            # Convert posted date
-            posted_timestamp = job.get('job_posted_at_timestamp')
-            posted_date = datetime.fromtimestamp(posted_timestamp) if posted_timestamp else None
-            
-            # Insert into database
-            cursor.execute("""
-                INSERT INTO jobs (
-                    job_id, title, company, location, salary, 
-                    job_type, description, url, source, posted_date
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (job_id) DO NOTHING
-            """, (
-                job_id, title, company, location, salary,
-                job_type, description, url, 'jsearch', posted_date
-            ))
-            
-            if cursor.rowcount > 0:
-                saved_count += 1
-            else:
-                skipped_count += 1
-                
-        except Exception as e:
-            print(f"Error saving job {job.get('job_id', 'unknown')}: {e}")
-            continue
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
-    
-    print(f"\nSaved: {saved_count} jobs")
-    print(f"Skipped (duplicates): {skipped_count} jobs")
-    return saved_count
+
+def find_hiring_companies(query="software engineer", location="", max_companies=10, refresh=False):
+    """
+    Search the web for companies actively hiring for the given role.
+    Uses DuckDuckGo to find companies and their career pages.
+
+    Returns a list of dicts with: name, careers_url, description, source_url
+    """
+    cache_key = f"{CACHE_PREFIX}companies:{query.lower().strip()}|{location.lower().strip()}"
+    if not refresh:
+        cached = _get_cached_jobs(cache_key)
+        if cached is not None:
+            return cached[:max_companies]
+
+    search_query = f"companies hiring {query}"
+    if location:
+        search_query += f" in {location}"
+    search_query += " careers jobs"
+
+    companies = []
+    seen_companies = set()
+
+    # Search DuckDuckGo HTML version
+    try:
+        params = {"q": search_query}
+        headers = _get_headers()
+        headers["Referer"] = "https://duckduckgo.com/"
+
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=15.0) as client:
+            resp = client.get("https://html.duckduckgo.com/html/", params=params)
+
+        if resp.status_code != 200:
+            print(f"DuckDuckGo returned status {resp.status_code}")
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = soup.select("div.result, div.web-result")
+
+        for result in results:
+            if len(companies) >= max_companies:
+                break
+
+            try:
+                title_el = result.select_one("a.result__a, h2.result__title a")
+                if not title_el:
+                    continue
+
+                title = title_el.get_text(strip=True)
+                url = title_el.get("href", "")
+
+                snippet_el = result.select_one("a.result__snippet, div.result__snippet")
+                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                # Extract company name from the result title
+                # Common patterns: "Company - Careers", "Jobs at Company", "Company Careers"
+                company_name = title
+                for suffix in [" - Careers", " Careers", " Jobs", " - Jobs", " | Careers",
+                               " | Jobs", " Hiring", " - Hiring", " Career Page",
+                               " Job Openings", " Open Positions", " - Open Positions"]:
+                    if suffix.lower() in company_name.lower():
+                        idx = company_name.lower().index(suffix.lower())
+                        company_name = company_name[:idx].strip()
+                        break
+
+                for prefix in ["Jobs at ", "Careers at ", "Work at ", "Join "]:
+                    if company_name.lower().startswith(prefix.lower()):
+                        company_name = company_name[len(prefix):].strip()
+                        break
+
+                # Clean up company name
+                company_name = company_name.split(" - ")[0].split(" | ")[0].strip()
+
+                if not company_name or len(company_name) < 2 or len(company_name) > 80:
+                    continue
+
+                # Skip duplicates
+                name_lower = company_name.lower()
+                if name_lower in seen_companies:
+                    continue
+                seen_companies.add(name_lower)
+
+                # Determine if the URL looks like a careers page
+                url_lower = url.lower()
+                is_careers = any(kw in url_lower for kw in
+                                 ["career", "jobs", "hiring", "openings", "positions",
+                                  "work-with-us", "join-us", "join-our-team", "talent"])
+
+                companies.append({
+                    "name": company_name,
+                    "careers_url": url,
+                    "description": snippet[:300] if snippet else "",
+                    "is_careers_page": is_careers,
+                })
+
+            except Exception as e:
+                print(f"Error parsing DuckDuckGo result: {e}")
+                continue
+
+    except Exception as e:
+        print(f"Error searching DuckDuckGo: {e}")
+
+    # Also try to find companies from LinkedIn company search
+    try:
+        linkedin_query = f"{query} hiring"
+        if location:
+            linkedin_query += f" {location}"
+
+        params = {"keywords": linkedin_query, "position": 1, "pageNum": 0}
+
+        with httpx.Client(headers=_get_headers(), follow_redirects=True, timeout=15.0) as client:
+            resp = client.get("https://www.linkedin.com/jobs/search/", params=params)
+
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            cards = soup.select("div.base-card, div.base-search-card")
+
+            for card in cards:
+                if len(companies) >= max_companies:
+                    break
+
+                company_el = card.select_one("h4.base-search-card__subtitle a, a.hidden-nested-link")
+                if not company_el:
+                    continue
+
+                company_name = company_el.get_text(strip=True)
+                company_url = company_el.get("href", "").split("?")[0]
+
+                if not company_name:
+                    continue
+
+                name_lower = company_name.lower()
+                if name_lower in seen_companies:
+                    continue
+                seen_companies.add(name_lower)
+
+                # Build careers URL from LinkedIn company page
+                careers_url = company_url
+                if "/company/" in company_url:
+                    careers_url = company_url.rstrip("/") + "/jobs/"
+
+                companies.append({
+                    "name": company_name,
+                    "careers_url": careers_url,
+                    "description": "",
+                    "is_careers_page": True,
+                })
+
+    except Exception as e:
+        print(f"Error extracting companies from LinkedIn: {e}")
+
+    print(f"Found {len(companies)} hiring companies for '{query}'")
+
+    # Cache results
+    if companies:
+        _set_cache(cache_key, companies)
+
+    return companies[:max_companies]
+
 
 if __name__ == "__main__":
-    print("Fetching jobs from JSearch API...")
-    jobs = fetch_jobs(query="python developer", max_jobs=100)
+    print("Scraping jobs from job boards...")
+    jobs = fetch_jobs(query="python developer", location="United States", max_jobs=10)
     print(f"\nTotal jobs fetched: {len(jobs)}")
-    
-    if jobs:
-        print("\nSaving to database...")
-        save_jobs_to_db(jobs)
-        print("\nDone!")
-    else:
-        print("No jobs to save.")
+
+    for job in jobs[:5]:
+        print(f"\n  Title: {job['job_title']}")
+        print(f"  Company: {job['employer_name']}")
+        print(f"  Location: {job['job_city']}, {job['job_state']}")
+        print(f"  URL: {job['job_apply_link']}")
+        print(f"  Source: {job['site']}")
