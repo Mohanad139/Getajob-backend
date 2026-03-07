@@ -4,11 +4,12 @@ import hashlib
 import httpx
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from dotenv import load_dotenv
 import os
 import re
 import random
+import time
 
 # Load environment variables
 load_dotenv()
@@ -21,23 +22,34 @@ CACHE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
 CACHE_PREFIX = "job_search:"
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
 ]
 
 
-def _get_headers():
-    return {
+def _get_headers(referer=None):
+    headers = {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
+    if referer:
+        headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "same-origin"
+    return headers
 
 
 def _get_redis():
@@ -136,7 +148,15 @@ def _scrape_indeed(query, location, max_jobs=25, days=7, sort_by="date"):
             params["fromage"] = days
 
         try:
-            with httpx.Client(headers=_get_headers(), follow_redirects=True, timeout=15.0) as client:
+            headers = _get_headers(referer="https://www.indeed.com/" if start > 0 else None)
+            with httpx.Client(headers=headers, follow_redirects=True, timeout=15.0) as client:
+                # First visit homepage to get cookies on first request
+                if start == 0:
+                    try:
+                        client.get("https://www.indeed.com/", timeout=10.0)
+                        time.sleep(random.uniform(0.5, 1.5))
+                    except Exception:
+                        pass
                 resp = client.get("https://www.indeed.com/jobs", params=params)
 
             if resp.status_code != 200:
@@ -370,9 +390,203 @@ def _scrape_linkedin(query, location, max_jobs=25, days=7, sort_by="date"):
     return jobs
 
 
+def _scrape_web_jobs(query, location, max_jobs=25, days=7):
+    """
+    Scrape job postings from across the web using DuckDuckGo search.
+    Finds jobs posted on individual company career pages, Glassdoor,
+    ZipRecruiter, and other job boards beyond LinkedIn/Indeed.
+    """
+    jobs = []
+    seen = set()
+
+    # Build search queries to find jobs from various sources
+    date_hint = ""
+    if days is not None and days <= 1:
+        date_hint = " today"
+    elif days is not None and days <= 7:
+        date_hint = " recent"
+
+    location_str = f" in {location}" if location else ""
+    search_queries = [
+        f"{query}{location_str}{date_hint} jobs apply",
+        f"{query}{location_str} careers hiring",
+    ]
+
+    headers = _get_headers(referer="https://duckduckgo.com/")
+
+    for search_query in search_queries:
+        if len(jobs) >= max_jobs:
+            break
+
+        try:
+            params = {"q": search_query}
+            with httpx.Client(headers=headers, follow_redirects=True, timeout=15.0) as client:
+                resp = client.get("https://html.duckduckgo.com/html/", params=params)
+
+            if resp.status_code != 200:
+                print(f"DuckDuckGo returned status {resp.status_code}")
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = soup.select("div.result, div.web-result")
+
+            for result in results:
+                if len(jobs) >= max_jobs:
+                    break
+
+                try:
+                    title_el = result.select_one("a.result__a, h2.result__title a")
+                    if not title_el:
+                        continue
+
+                    raw_title = title_el.get_text(strip=True)
+                    url = title_el.get("href", "")
+
+                    # Skip non-job results and results from Indeed/LinkedIn (we already scrape those)
+                    url_lower = url.lower()
+                    if any(skip in url_lower for skip in [
+                        "indeed.com", "linkedin.com", "youtube.com", "wikipedia.org",
+                        "reddit.com", "quora.com", "facebook.com", "twitter.com",
+                    ]):
+                        continue
+
+                    snippet_el = result.select_one("a.result__snippet, div.result__snippet")
+                    snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+
+                    # Parse the title to extract job title and company
+                    # Common patterns: "Job Title - Company", "Job Title at Company",
+                    # "Job Title | Company", "Company - Job Title"
+                    job_title = raw_title
+                    company = ""
+
+                    # Try to extract company from URL domain
+                    domain = ""
+                    try:
+                        parsed = urlparse(url)
+                        domain = parsed.netloc.replace("www.", "").split(".")[0]
+                    except Exception:
+                        pass
+
+                    # Parse title patterns
+                    for sep in [" - ", " | ", " — ", " – "]:
+                        if sep in raw_title:
+                            parts = raw_title.split(sep)
+                            # Usually "Job Title - Company - Location" or "Company - Job Title"
+                            if len(parts) >= 2:
+                                # Check if first part looks like a company name (shorter, no job keywords)
+                                job_keywords = ["engineer", "developer", "manager", "analyst",
+                                                "designer", "specialist", "coordinator", "director",
+                                                "lead", "senior", "junior", "intern", "associate"]
+                                first_lower = parts[0].lower()
+                                if any(kw in first_lower for kw in job_keywords):
+                                    job_title = parts[0].strip()
+                                    company = parts[1].strip()
+                                else:
+                                    company = parts[0].strip()
+                                    job_title = parts[1].strip()
+                            break
+
+                    if " at " in raw_title and not company:
+                        at_parts = raw_title.split(" at ")
+                        if len(at_parts) == 2:
+                            job_title = at_parts[0].strip()
+                            company = at_parts[1].strip()
+
+                    # Clean up company name - remove common suffixes
+                    for suffix in [" Careers", " Jobs", " Hiring", " Career Page",
+                                   " Job Board", " - Apply", " | Apply"]:
+                        if company.endswith(suffix):
+                            company = company[:-len(suffix)].strip()
+
+                    # Fallback: use domain as company name
+                    if not company and domain:
+                        company = domain.capitalize()
+
+                    # Skip if we can't determine a job title
+                    if not job_title or len(job_title) < 3:
+                        continue
+
+                    # Skip results that don't look like job postings
+                    combined = (raw_title + " " + snippet).lower()
+                    job_signals = ["apply", "hiring", "job", "position", "career",
+                                   "salary", "remote", "full-time", "part-time",
+                                   "experience", "requirements", "qualifications"]
+                    if not any(signal in combined for signal in job_signals):
+                        continue
+
+                    # Deduplicate
+                    dedup_key = (job_title.lower(), company.lower())
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+
+                    # Try to extract location from snippet
+                    loc_city, loc_state, loc_country = "", "", ""
+                    if location:
+                        loc_parts = [p.strip() for p in location.split(",")]
+                        loc_city = loc_parts[0] if len(loc_parts) > 0 else ""
+                        loc_state = loc_parts[1] if len(loc_parts) > 1 else ""
+                        loc_country = loc_parts[2] if len(loc_parts) > 2 else ""
+
+                    # Determine the source site from URL
+                    source_site = "web"
+                    known_boards = {
+                        "glassdoor": "glassdoor", "ziprecruiter": "ziprecruiter",
+                        "monster": "monster", "simplyhired": "simplyhired",
+                        "dice": "dice", "careerbuilder": "careerbuilder",
+                        "wellfound": "wellfound", "lever.co": "lever",
+                        "greenhouse": "greenhouse", "workday": "workday",
+                        "smartrecruiters": "smartrecruiters", "ashbyhq": "ashby",
+                        "breezy": "breezy", "jobvite": "jobvite",
+                    }
+                    for board_key, board_name in known_boards.items():
+                        if board_key in url_lower:
+                            source_site = board_name
+                            break
+
+                    # If it's from a company career page, label it as such
+                    career_keywords = ["career", "jobs.", "/jobs", "hiring",
+                                       "openings", "positions", "apply"]
+                    if source_site == "web" and any(kw in url_lower for kw in career_keywords):
+                        source_site = "company_career"
+
+                    jobs.append({
+                        "job_id": _make_job_id(job_title, company, url),
+                        "job_title": job_title,
+                        "employer_name": company,
+                        "job_city": loc_city,
+                        "job_state": loc_state,
+                        "job_country": loc_country,
+                        "job_description": snippet[:500] if snippet else "",
+                        "job_min_salary": None,
+                        "job_max_salary": None,
+                        "job_employment_type": "",
+                        "job_apply_link": url,
+                        "job_google_link": "",
+                        "job_posted_at_datetime_utc": "",
+                        "site": source_site,
+                    })
+
+                except Exception as e:
+                    print(f"Error parsing web search result: {e}")
+                    continue
+
+        except httpx.TimeoutException:
+            print(f"DuckDuckGo request timed out for: {search_query}")
+            continue
+        except Exception as e:
+            print(f"Error searching web for jobs: {e}")
+            continue
+
+        # Small delay between search queries
+        time.sleep(random.uniform(0.5, 1.0))
+
+    return jobs
+
+
 def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted="week", sort_by="date", refresh=False):
     """
-    Fetch jobs by scraping real job boards (Indeed + LinkedIn).
+    Fetch jobs by scraping real job boards (Indeed + LinkedIn + web/company career pages).
 
     Args:
         query: Search query (e.g., "Software Engineer in Canada")
@@ -392,14 +606,14 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted=
 
     days = DATE_POSTED_TO_DAYS.get(date_posted)
 
-    # Split target between sources
-    per_source = max(max_jobs // 2, 10)
+    # Split target between 3 sources
+    per_source = max(max_jobs // 3, 8)
 
     print(f"Scraping jobs for: '{query}' location='{location}' max={max_jobs} days={days}")
 
     all_jobs = []
 
-    # Scrape from both sources
+    # Scrape from all sources
     try:
         indeed_jobs = _scrape_indeed(query, location, max_jobs=per_source, days=days, sort_by=sort_by)
         print(f"Indeed: scraped {len(indeed_jobs)} jobs")
@@ -413,6 +627,13 @@ def fetch_jobs(query="software engineer", location="", max_jobs=25, date_posted=
         all_jobs.extend(linkedin_jobs)
     except Exception as e:
         print(f"LinkedIn scraping failed: {e}")
+
+    try:
+        web_jobs = _scrape_web_jobs(query, location, max_jobs=per_source, days=days)
+        print(f"Web/Company pages: scraped {len(web_jobs)} jobs")
+        all_jobs.extend(web_jobs)
+    except Exception as e:
+        print(f"Web scraping failed: {e}")
 
     # Deduplicate across sources by (title, company)
     seen = set()
